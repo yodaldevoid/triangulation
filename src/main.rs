@@ -101,6 +101,12 @@ fn add_points(points: &[Point], triangles: &mut Vec<Triangle>) {
             })
             .collect::<Vec<_>>();
 
+        if visible.len() == 0 {
+            // that's bad
+            // running away from problems
+            continue;
+        }
+
         let initial_len = hull.len();
         let mut new_point_idx = visible[0] + 1;
 
@@ -157,12 +163,14 @@ fn main() {
     let mut points = vec![];
     let mut rng = rand::thread_rng();
 
-    for _ in 0..50 {
+    for _ in 0..10000 {
         let x = rng.gen_range(0.0, 500.0);
         let y = rng.gen_range(0.0, 500.0);
         points.push(Point::new(x, y));
     }
 
+    let t = std::time::Instant::now();
     let tris = triangulate(points);
+    eprintln!("elapsed {:?}", t.elapsed());
     println!("{}", serde_json::to_string(&tris).unwrap());
 }
