@@ -88,50 +88,38 @@ impl Triangle {
 fn add_points(points: &[Point], triangles: &mut Vec<Triangle>) {
     let mut hull = vec![triangles[0].0, triangles[0].1, triangles[0].2];
 
-    for &point in points {
-        let mut visible = hull
+    for &new_point in points {
+        let visible = hull
             .iter()
             .cloned()
             .enumerate()
-            .filter(|(i, p)| !Triangle(*p, hull[(i + 1) % hull.len()], point).is_right_handed())
-            .map(|(i, _)| i);
+            .map(|(i, point)| (i, Triangle(point, hull[(i + 1) % hull.len()], new_point)))
+            .filter(|(_, triangle)| !triangle.is_right_handed())
+            .map(|(i, triangle)| {
+                triangles.push(triangle);
+                i
+            })
+            .collect::<Vec<_>>();
 
-        let mut first_idx = visible.next().unwrap();
-        let mut last_idx = visible.last().unwrap_or(first_idx);
+        let initial_len = hull.len();
+        let mut new_point_idx = visible[0] + 1;
 
-        if last_idx > first_idx && (last_idx + 1) % hull.len() == first_idx {
-            std::mem::swap(&mut first_idx, &mut last_idx);
-        }
+        for (i, &edge) in visible.iter().enumerate().rev() {
+            let prev_idx = if i == 0 {
+                visible.len() - 1
+            } else {
+                i - 1
+            };
 
-        let mut i = first_idx;
+            let prev = visible[prev_idx];
 
-        loop {
-            triangles.push(Triangle(hull[i], point, hull[(i + 1) % hull.len()]));
-
-            if i == last_idx {
-                break
+            if (prev + 1) % initial_len == edge {
+                hull.remove(edge);
+                new_point_idx = edge;
             }
-
-            i = (i + 1) % hull.len();
         }
 
-        if first_idx <= last_idx {
-            let d = first_idx + 1;
-
-            for _ in first_idx..last_idx {
-                hull.remove(d);
-            }
-
-            hull.insert(d, point);
-        } else {
-            hull.drain(first_idx..=first_idx);
-            hull.drain(last_idx..=last_idx);
-        }
-
-        if hull.len() < 3 {
-            println!("FUCK");
-            break;
-        }
+        hull.insert(new_point_idx, new_point);
     }
 }
 
@@ -169,7 +157,7 @@ fn main() {
     let mut points = vec![];
     let mut rng = rand::thread_rng();
 
-    for _ in 0..14 {
+    for _ in 0..50 {
         let x = rng.gen_range(0.0, 500.0);
         let y = rng.gen_range(0.0, 500.0);
         points.push(Point::new(x, y));
