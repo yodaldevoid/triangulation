@@ -144,9 +144,13 @@ impl ConvexHull {
 pub fn triangulate(mut points: Vec<Point>) -> Vec<Triangle> {
     let seed = points.pop().unwrap();
 
-    points.par_sort_unstable_by_key(|p| -p.distance_sq(&seed));
+    let (i, &nearest) = points
+        .par_iter()
+        .enumerate()
+        .min_by_key(|(_, &p)| p.distance_sq(&seed))
+        .unwrap();
 
-    let nearest = points.pop().unwrap();
+    points.remove(i);
 
     let (i, &best_third) = points
         .par_iter()
