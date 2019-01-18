@@ -85,18 +85,34 @@ impl Triangle {
     }
 }
 
-fn add_points(points: &[Point], triangles: &mut Vec<Triangle>) {
-    let mut hull = vec![triangles[0].0, triangles[0].1, triangles[0].2];
+pub struct ConvexHull {
+    points: Vec<Point>,
+}
 
-    for &new_point in points {
-        let visible = hull
+impl ConvexHull {
+    pub fn new(a: Point, b: Point, c: Point) -> ConvexHull {
+        let points = vec![a, b, c];
+        ConvexHull { points }
+    }
+
+    pub fn add_point<F>(&mut self, new_point: Point, mut add_triangle: F)
+    where
+        F: FnMut(Triangle),
+    {
+        let visible = self
+            .points
             .iter()
             .cloned()
             .enumerate()
-            .map(|(i, point)| (i, Triangle(point, hull[(i + 1) % hull.len()], new_point)))
+            .map(|(i, p)| {
+                (
+                    i,
+                    Triangle(p, self.points[(i + 1) % self.points.len()], new_point),
+                )
+            })
             .filter(|(_, triangle)| !triangle.is_right_handed())
             .map(|(i, triangle)| {
-                triangles.push(triangle);
+                add_triangle(triangle);
                 i
             })
             .collect::<Vec<_>>();
@@ -104,28 +120,24 @@ fn add_points(points: &[Point], triangles: &mut Vec<Triangle>) {
         if visible.len() == 0 {
             // that's bad
             // running away from problems
-            continue;
+            return;
         }
 
-        let initial_len = hull.len();
+        let initial_len = self.points.len();
         let mut new_point_idx = visible[0] + 1;
 
         for (i, &edge) in visible.iter().enumerate().rev() {
-            let prev_idx = if i == 0 {
-                visible.len() - 1
-            } else {
-                i - 1
-            };
+            let prev_idx = if i == 0 { visible.len() - 1 } else { i - 1 };
 
             let prev = visible[prev_idx];
 
             if (prev + 1) % initial_len == edge {
-                hull.remove(edge);
+                self.points.remove(edge);
                 new_point_idx = edge;
             }
         }
 
-        hull.insert(new_point_idx, new_point);
+        self.points.insert(new_point_idx, new_point);
     }
 }
 
@@ -151,8 +163,11 @@ pub fn triangulate(mut points: Vec<Point>) -> Vec<Triangle> {
     points.par_sort_unstable_by_key(|p| p.distance_sq(&circumcenter));
 
     let mut triangles = vec![triangle];
+    let mut hull = ConvexHull::new(triangle.0, triangle.1, triangle.2);
 
-    add_points(points.as_slice(), &mut triangles);
+    for point in points {
+        hull.add_point(point, |triangle| triangles.push(triangle));
+    }
 
     triangles
 }
@@ -163,7 +178,7 @@ fn main() {
     let mut points = vec![];
     let mut rng = rand::thread_rng();
 
-    for _ in 0..10000 {
+    for _ in 0..1000000 {
         let x = rng.gen_range(0.0, 500.0);
         let y = rng.gen_range(0.0, 500.0);
         points.push(Point::new(x, y));
