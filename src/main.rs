@@ -1,7 +1,6 @@
 use fnv::FnvHashMap;
 use ordered_float::NotNan;
 use rayon::prelude::*;
-
 use serde_derive::Serialize;
 
 type Scalar = NotNan<f32>;
@@ -145,39 +144,52 @@ impl ConvexHull {
             .cloned()
             .enumerate()
             .map(|(i, p)| {
-                (
-                    i,
-                    Triangle(p, self.points[(i + 1) % self.points.len()], new_point),
-                )
+                let t = Triangle(p, self.points[(i + 1) % self.points.len()], new_point);
+                (i, t)
             })
-            .filter(|(_, triangle)| !triangle.is_right_handed() && !triangle.is_zero_area())
-            .map(|(i, triangle)| {
-                add_triangle(triangle);
-                i
-            })
-            .collect::<Vec<_>>();
+            .filter(|(_, t)| !t.is_right_handed() && !t.is_zero_area());
 
-        if visible.is_empty() {
-            // that's bad
-            // running away from problems
-            return;
-        }
+        let mut start = None;
+        let mut jump_start = None;
+        let mut jump_end = None;
+        let mut end = None;
 
-        let initial_len = self.points.len();
-        let mut new_point_idx = visible[0] + 1;
+        for (i, triangle) in visible {
+            add_triangle(triangle);
 
-        for (i, &edge) in visible.iter().enumerate().rev() {
-            let prev_idx = if i == 0 { visible.len() - 1 } else { i - 1 };
-
-            let prev = visible[prev_idx];
-
-            if (prev + 1) % initial_len == edge {
-                self.points.remove(edge);
-                new_point_idx = edge;
+            if start.is_none() {
+                start = Some(i);
             }
+
+            if let Some(v) = end {
+                if v + 1 != i {
+                    jump_start = Some(v + 1);
+                    jump_end = Some(i);
+                }
+            }
+
+            end = Some(i);
         }
 
-        self.points.insert(new_point_idx, new_point);
+        match (start, jump_start, end) {
+            (Some(start), None, Some(end)) if start != end => {
+                self.points.drain(start + 1..=end);
+                self.points.insert(start + 1, new_point);
+            }
+
+            (Some(start), _, Some(end)) if start == end => {
+                self.points.insert(start + 1, new_point);
+            }
+
+            (_, Some(jump_start), _) => {
+                let jump_end = jump_end.unwrap();
+                self.points.drain(jump_end + 1..);
+                self.points.drain(..jump_start);
+                self.points.insert(0, new_point);
+            }
+
+            _ => {}
+        }
     }
 }
 
@@ -386,9 +398,9 @@ fn main() {
     let mut points = vec![];
     let mut rng = rand::thread_rng();
 
-    for _ in 0..10000 {
-        let x = rng.gen_range(0.0, 500.0);
-        let y = rng.gen_range(0.0, 500.0);
+    for _ in 0..1000 {
+        let x = rng.gen_range(0.0, 50000.0);
+        let y = rng.gen_range(0.0, 50000.0);
         points.push(Point::new(x, y));
     }
 
