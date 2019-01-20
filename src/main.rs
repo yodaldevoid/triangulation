@@ -1,3 +1,4 @@
+use fnv::FnvHashMap;
 use ordered_float::NotNan;
 use rayon::prelude::*;
 
@@ -7,8 +8,8 @@ type Scalar = NotNan<f32>;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Point {
-    x: Scalar,
-    y: Scalar,
+    pub x: Scalar,
+    pub y: Scalar,
 }
 
 impl Point {
@@ -24,10 +25,28 @@ impl Point {
         let dy = self.y - other.y;
         dx * dx + dy * dy
     }
+
+    pub fn sort(a: &mut Point, b: &mut Point) {
+        if a.y < b.y {
+            return;
+        }
+
+        if a.y == b.y && a.x < a.y {
+            return;
+        }
+
+        std::mem::swap(a, b);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
-pub struct Triangle(Point, Point, Point);
+pub struct Circumcircle {
+    pub radius_sq: Scalar,
+    pub center: Point,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+pub struct Triangle(pub Point, pub Point, pub Point);
 
 impl Triangle {
     fn circumcircle_xy(&self) -> (Scalar, Scalar) {
@@ -66,7 +85,19 @@ impl Triangle {
 
         Point {
             x: x + self.0.x,
-            y: y + self.1.y,
+            y: y + self.0.y,
+        }
+    }
+
+    pub fn circumcircle(&self) -> Circumcircle {
+        let (x, y) = self.circumcircle_xy();
+
+        Circumcircle {
+            radius_sq: x * x + y * y,
+            center: Point {
+                x: x + self.0.x,
+                y: y + self.0.y,
+            },
         }
     }
 
@@ -82,6 +113,15 @@ impl Triangle {
         if !self.is_right_handed() {
             std::mem::swap(&mut self.1, &mut self.2);
         }
+    }
+
+    pub fn is_zero_area(&self) -> bool {
+        let v21x = self.0.x - self.1.x;
+        let v21y = self.0.y - self.1.y;
+        let v23x = self.2.x - self.1.x;
+        let v23y = self.2.y - self.1.y;
+
+        v21x * v23y - v21y * v23x == Scalar::new(0.0).unwrap()
     }
 }
 
@@ -110,14 +150,14 @@ impl ConvexHull {
                     Triangle(p, self.points[(i + 1) % self.points.len()], new_point),
                 )
             })
-            .filter(|(_, triangle)| !triangle.is_right_handed())
+            .filter(|(_, triangle)| !triangle.is_right_handed() && !triangle.is_zero_area())
             .map(|(i, triangle)| {
                 add_triangle(triangle);
                 i
             })
             .collect::<Vec<_>>();
 
-        if visible.len() == 0 {
+        if visible.is_empty() {
             // that's bad
             // running away from problems
             return;
@@ -139,6 +179,165 @@ impl ConvexHull {
 
         self.points.insert(new_point_idx, new_point);
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+pub struct Neighbours(Option<usize>, Option<usize>, Option<usize>);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+pub struct SharedEdge(usize, Option<usize>);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+pub struct MetaTriangle {
+    triangle: Triangle,
+    circumcircle: Circumcircle,
+    neighbours: Neighbours,
+}
+
+impl MetaTriangle {
+    pub fn new(triangle: Triangle) -> MetaTriangle {
+        MetaTriangle {
+            triangle,
+            circumcircle: triangle.circumcircle(),
+            neighbours: Neighbours(None, None, None),
+        }
+    }
+
+    pub fn neighbour(&self, a: Point, b: Point) -> Option<usize> {
+        if self.triangle.0 != a && self.triangle.0 != b {
+            self.neighbours.0
+        } else if self.triangle.1 != a && self.triangle.1 != b {
+            self.neighbours.1
+        } else {
+            self.neighbours.2
+        }
+    }
+
+    pub fn neighbour_mut(&mut self, a: Point, b: Point) -> &mut Option<usize> {
+        if self.triangle.0 != a && self.triangle.0 != b {
+            &mut self.neighbours.0
+        } else if self.triangle.1 != a && self.triangle.1 != b {
+            &mut self.neighbours.1
+        } else {
+            &mut self.neighbours.2
+        }
+    }
+
+    pub fn against_edge(&self, a: Point, b: Point) -> Point {
+        if self.triangle.0 != a && self.triangle.0 != b {
+            self.triangle.0
+        } else if self.triangle.1 != a && self.triangle.1 != b {
+            self.triangle.1
+        } else {
+            self.triangle.2
+        }
+    }
+}
+
+pub fn check_and_flip(
+    a_idx: usize,
+    triangles: &mut Vec<MetaTriangle>,
+    edge_table: &mut FnvHashMap<(Point, Point), SharedEdge>,
+) {
+    let a = triangles[a_idx];
+
+    let mut check_edge = |b_idx, edge: (Point, Point)| {
+        let b: MetaTriangle = triangles[b_idx];
+
+        let opposite_a = a.against_edge(edge.0, edge.1);
+        let opposite_b = b.against_edge(edge.0, edge.1);
+
+        if a.circumcircle.center.distance_sq(&opposite_b) >= a.circumcircle.radius_sq {
+            return;
+        }
+
+        let triangle = Triangle(edge.0, opposite_a, opposite_b);
+        triangles[a_idx] = MetaTriangle {
+            triangle,
+            circumcircle: triangle.circumcircle(),
+            neighbours: Neighbours(
+                Some(b_idx),
+                b.neighbour(edge.0, opposite_b),
+                a.neighbour(edge.0, opposite_a),
+            ),
+        };
+
+        let mut neighbour_edge = (edge.0, opposite_b);
+        Point::sort(&mut neighbour_edge.0, &mut neighbour_edge.1);
+
+        if let Some(neighbour) = b.neighbour(edge.0, opposite_b) {
+            *triangles[neighbour].neighbour_mut(edge.0, opposite_b) = Some(a_idx);
+            edge_table.insert(neighbour_edge, SharedEdge(a_idx, Some(neighbour)));
+        } else {
+            edge_table.insert(neighbour_edge, SharedEdge(a_idx, None));
+        }
+
+        let triangle = Triangle(edge.1, opposite_b, opposite_a);
+        triangles[b_idx] = MetaTriangle {
+            triangle,
+            circumcircle: triangle.circumcircle(),
+            neighbours: Neighbours(
+                Some(a_idx),
+                a.neighbour(edge.1, opposite_a),
+                b.neighbour(edge.1, opposite_b),
+            ),
+        };
+
+        let mut neighbour_edge = (edge.1, opposite_a);
+        Point::sort(&mut neighbour_edge.0, &mut neighbour_edge.1);
+
+        if let Some(neighbour) = a.neighbour(edge.1, opposite_a) {
+            *triangles[neighbour].neighbour_mut(edge.1, opposite_a) = Some(b_idx);
+            edge_table.insert(neighbour_edge, SharedEdge(b_idx, Some(neighbour)));
+        } else {
+            edge_table.insert(neighbour_edge, SharedEdge(b_idx, None));
+        }
+
+        check_and_flip(a_idx, triangles, edge_table);
+        check_and_flip(b_idx, triangles, edge_table);
+    };
+
+    a.neighbours
+        .0
+        .map(|b_idx| check_edge(b_idx, (a.triangle.1, a.triangle.2)));
+    a.neighbours
+        .1
+        .map(|b_idx| check_edge(b_idx, (a.triangle.0, a.triangle.2)));
+    a.neighbours
+        .2
+        .map(|b_idx| check_edge(b_idx, (a.triangle.0, a.triangle.1)));
+}
+
+pub fn add_triangle(
+    triangle: Triangle,
+    triangles: &mut Vec<MetaTriangle>,
+    edge_table: &mut FnvHashMap<(Point, Point), SharedEdge>,
+) {
+    let mut mt = MetaTriangle::new(triangle);
+
+    triangles.push(mt);
+    let index = triangles.len() - 1;
+
+    let mut add_edge = |mut a, mut b| {
+        Point::sort(&mut a, &mut b);
+
+        edge_table
+            .entry((a, b))
+            .and_modify(|SharedEdge(old, new)| {
+                *triangles[*old].neighbour_mut(a, b) = Some(index);
+                *mt.neighbour_mut(a, b) = Some(*old);
+                *new = Some(index)
+            })
+            .or_insert_with(|| SharedEdge(index, None));
+    };
+
+    add_edge(triangle.0, triangle.1);
+    add_edge(triangle.1, triangle.2);
+    add_edge(triangle.2, triangle.0);
+
+    triangles[index] = mt;
+
+    check_and_flip(index, triangles, edge_table);
 }
 
 pub fn triangulate(mut points: Vec<Point>) -> Vec<Triangle> {
@@ -166,14 +365,19 @@ pub fn triangulate(mut points: Vec<Point>) -> Vec<Triangle> {
 
     points.par_sort_unstable_by_key(|p| p.distance_sq(&circumcenter));
 
-    let mut triangles = vec![triangle];
+    let mut triangles = vec![];
+    let mut edge_table = Default::default();
     let mut hull = ConvexHull::new(triangle.0, triangle.1, triangle.2);
 
+    add_triangle(triangle, &mut triangles, &mut edge_table);
+
     for point in points {
-        hull.add_point(point, |triangle| triangles.push(triangle));
+        hull.add_point(point, |triangle| {
+            add_triangle(triangle, &mut triangles, &mut edge_table);
+        });
     }
 
-    triangles
+    triangles.iter().map(|mt| mt.triangle).collect()
 }
 
 fn main() {
@@ -182,7 +386,7 @@ fn main() {
     let mut points = vec![];
     let mut rng = rand::thread_rng();
 
-    for _ in 0..1000000 {
+    for _ in 0..10000 {
         let x = rng.gen_range(0.0, 500.0);
         let y = rng.gen_range(0.0, 500.0);
         points.push(Point::new(x, y));
