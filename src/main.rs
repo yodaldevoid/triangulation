@@ -1,25 +1,47 @@
-use fnv::FnvHashMap;
-use ordered_float::NotNan;
-use rayon::prelude::*;
-use serde_derive::Serialize;
+#![allow(clippy::float_cmp)]
 
-type Scalar = NotNan<f32>;
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct OptionIndex(usize);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+impl OptionIndex {
+    pub fn some(idx: usize) -> OptionIndex {
+        debug_assert!(idx < std::usize::MAX);
+        OptionIndex(idx)
+    }
+
+    pub fn none() -> OptionIndex {
+        OptionIndex(std::usize::MAX)
+    }
+
+    pub fn is_some(self) -> bool {
+        self != OptionIndex::none()
+    }
+
+    pub fn is_none(self) -> bool {
+        self == OptionIndex::none()
+    }
+
+    pub fn get(self) -> Option<usize> {
+        if self.is_some() {
+            Some(self.0)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Point {
-    pub x: Scalar,
-    pub y: Scalar,
+    pub x: f32,
+    pub y: f32,
 }
 
 impl Point {
     pub fn new(x: f32, y: f32) -> Point {
-        Point {
-            x: NotNan::new(x).unwrap(),
-            y: NotNan::new(y).unwrap(),
-        }
+        Point { x, y }
     }
 
-    pub fn distance_sq(&self, other: &Point) -> Scalar {
+    pub fn distance_sq(self, other: Point) -> f32 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
         dx * dx + dy * dy
@@ -38,17 +60,29 @@ impl Point {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+impl Into<(i32, i32)> for Point {
+    fn into(self) -> (i32, i32) {
+        (self.x as i32, self.y as i32)
+    }
+}
+
+impl Into<(f32, f32)> for Point {
+    fn into(self) -> (f32, f32) {
+        (self.x, self.y)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Circumcircle {
-    pub radius_sq: Scalar,
+    pub radius_sq: f32,
     pub center: Point,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Triangle(pub Point, pub Point, pub Point);
 
 impl Triangle {
-    fn circumcircle_xy(&self) -> (Scalar, Scalar) {
+    fn circumcircle_delta(self) -> (f32, f32) {
         let p = Point {
             x: self.1.x - self.0.x,
             y: self.1.y - self.0.y,
@@ -61,26 +95,25 @@ impl Triangle {
 
         let p2 = p.x * p.x + p.y * p.y;
         let q2 = q.x * q.x + q.y * q.y;
-        let d = Scalar::new(2.0).unwrap() * (p.x * q.y - p.y * q.x);
+        let d = 2.0 * (p.x * q.y - p.y * q.x);
 
-        if d == Scalar::new(0.0).unwrap() {
-            let inf = Scalar::new(std::f32::INFINITY).unwrap();
-            return (inf, inf);
+        if d == 0.0 {
+            return (std::f32::INFINITY, std::f32::INFINITY);
         }
 
-        let x = (q.y * p2 - p.y * q2) / d;
-        let y = (p.x * q2 - q.x * p2) / d;
+        let dx = (q.y * p2 - p.y * q2) / d;
+        let dy = (p.x * q2 - q.x * p2) / d;
 
-        (x, y)
+        (dx, dy)
     }
 
-    pub fn circumradius_sq(&self) -> Scalar {
-        let (x, y) = self.circumcircle_xy();
+    pub fn circumradius_sq(self) -> f32 {
+        let (x, y) = self.circumcircle_delta();
         x * x + y * y
     }
 
-    pub fn circumcenter(&self) -> Point {
-        let (x, y) = self.circumcircle_xy();
+    pub fn circumcenter(self) -> Point {
+        let (x, y) = self.circumcircle_delta();
 
         Point {
             x: x + self.0.x,
@@ -88,8 +121,8 @@ impl Triangle {
         }
     }
 
-    pub fn circumcircle(&self) -> Circumcircle {
-        let (x, y) = self.circumcircle_xy();
+    pub fn circumcircle(self) -> Circumcircle {
+        let (x, y) = self.circumcircle_delta();
 
         Circumcircle {
             radius_sq: x * x + y * y,
@@ -100,12 +133,21 @@ impl Triangle {
         }
     }
 
-    pub fn is_right_handed(&self) -> bool {
+    /// Returns the cross product of vectors 1--0 and 1--2
+    fn orientation(self) -> f32 {
         let v21x = self.0.x - self.1.x;
         let v21y = self.0.y - self.1.y;
         let v23x = self.2.x - self.1.x;
         let v23y = self.2.y - self.1.y;
-        v21x * v23y - v21y * v23x > Scalar::new(0.0).unwrap()
+        v21x * v23y - v21y * v23x
+    }
+
+    pub fn is_right_handed(self) -> bool {
+        self.orientation() > 0.0
+    }
+
+    pub fn is_left_handed(self) -> bool {
+        self.orientation() < 0.0
     }
 
     pub fn make_right_handed(&mut self) {
@@ -114,298 +156,472 @@ impl Triangle {
         }
     }
 
-    pub fn is_zero_area(&self) -> bool {
-        let v21x = self.0.x - self.1.x;
-        let v21y = self.0.y - self.1.y;
-        let v23x = self.2.x - self.1.x;
-        let v23y = self.2.y - self.1.y;
+    pub fn is_zero_area(self) -> bool {
+        self.orientation() == 0.0
+    }
 
-        v21x * v23y - v21y * v23x == Scalar::new(0.0).unwrap()
+    pub fn in_circumcircle(self, point: Point) -> bool {
+        let dx = self.0.x - point.x;
+        let dy = self.0.y - point.y;
+        let ex = self.1.x - point.x;
+        let ey = self.1.y - point.y;
+        let fx = self.2.x - point.x;
+        let fy = self.2.y - point.y;
+
+        let ap = dx * dx + dy * dy;
+        let bp = ex * ex + ey * ey;
+        let cp = fx * fx + fy * fy;
+
+        dx * (ey * cp - bp * fy) - dy * (ex * cp - bp * fx) + ap * (ex * fy - ey * fx) < 0.0
     }
 }
 
-pub struct ConvexHull {
-    points: Vec<Point>,
+/// Monotonically increases with the real angle, returns vales in range [0; 1]
+fn pseudo_angle(dx: f32, dy: f32) -> f32 {
+    let p = dx / (dx.abs() + dy.abs());
+
+    if dy > 0.0 {
+        (3.0 - p) / 4.0
+    } else {
+        (1.0 + p) / 4.0
+    }
 }
 
-impl ConvexHull {
-    pub fn new(a: Point, b: Point, c: Point) -> ConvexHull {
-        let points = vec![a, b, c];
-        ConvexHull { points }
+/// Maps angle between `point` and `center` to index in the hash table
+fn angular_hash(point: Point, center: Point, size: usize) -> usize {
+    let angle = pseudo_angle(point.x - center.x, point.y - center.y);
+    (angle * size as f32) as usize % size
+}
+
+/// Counter-clockwise convex hull
+struct Hull {
+    /// Maps point index to next point index
+    next: Vec<usize>,
+
+    /// Maps point index to previous point index
+    prev: Vec<usize>,
+
+    /// Radial hash table
+    hash_table: Vec<OptionIndex>,
+
+    /// Boundary triangles
+    triangles: Vec<OptionIndex>,
+
+    /// Center point for calculating radial hash
+    center: Point,
+}
+
+impl Hull {
+    pub fn new(seed: [usize; 3], points: &[Point]) -> Hull {
+        let capacity = points.len();
+        let table_size = (capacity as f32).sqrt().ceil() as usize;
+
+        let center = Triangle(points[seed[0]], points[seed[1]], points[seed[2]]).circumcenter();
+
+        let mut hull = Hull {
+            next: vec![0; capacity],
+            prev: vec![0; capacity],
+            hash_table: vec![OptionIndex::none(); table_size],
+            triangles: vec![OptionIndex::none(); capacity],
+            center,
+        };
+
+        hull.next[seed[0]] = seed[1];
+        hull.next[seed[1]] = seed[2];
+        hull.next[seed[2]] = seed[0];
+
+        hull.prev[seed[0]] = seed[2];
+        hull.prev[seed[1]] = seed[0];
+        hull.prev[seed[2]] = seed[1];
+
+        hull.add_hash(seed[0], points[seed[0]]);
+        hull.add_hash(seed[1], points[seed[1]]);
+        hull.add_hash(seed[2], points[seed[2]]);
+
+        hull
     }
 
-    pub fn add_point<F>(&mut self, new_point: Point, mut add_triangle: F)
-    where
-        F: FnMut(Triangle),
-    {
-        let visible = self
-            .points
-            .iter()
-            .cloned()
-            .enumerate()
-            .map(|(i, p)| {
-                let t = Triangle(p, self.points[(i + 1) % self.points.len()], new_point);
-                (i, t)
-            })
-            .filter(|(_, t)| !t.is_right_handed() && !t.is_zero_area());
+    /// Adds a new point in the hash table
+    fn add_hash(&mut self, index: usize, point: Point) {
+        let table_size = self.hash_table.len();
+        self.hash_table[angular_hash(point, self.center, table_size)] = OptionIndex::some(index);
+    }
 
-        let mut start = None;
-        let mut jump_start = None;
-        let mut jump_end = None;
-        let mut end = None;
+    /// Returns the first convex hull edge visible from the point and a boolean
+    /// indicating whether the previous edge may be visible too
+    fn find_visible_edge(&self, point: Point, points: &[Point]) -> Option<(usize, bool)> {
+        let table_size = self.hash_table.len();
+        let hash = angular_hash(point, self.center, table_size);
 
-        for (i, triangle) in visible {
-            add_triangle(triangle);
+        let mut start = OptionIndex::none();
 
-            if start.is_none() {
-                start = Some(i);
+        // basically linear probing hash table
+        for i in 0..table_size {
+            start = self.hash_table[(hash + i) % table_size];
+
+            // if e == self.next[e] then it is an empty hash table entry; skip it
+            if start.get().filter(|&e| e != self.next[e]).is_some() {
+                break;
+            }
+        }
+
+        // now `start` is a point near enough to the target
+        // let's go forward to find a visible edge
+
+        let start = self.prev[start.get()?];
+        let mut edge = start;
+
+        loop {
+            let next = self.next[edge];
+            let tri = Triangle(point, points[edge], points[next]);
+
+            if tri.is_left_handed() {
+                // edge is visible, breakin' outta hell
+                break;
             }
 
-            if let Some(v) = end {
-                if v + 1 != i {
-                    jump_start = Some(v + 1);
-                    jump_end = Some(i);
+            edge = next;
+            if edge == start {
+                // avoiding the endless loop
+                return None;
+            }
+        }
+
+        // if edge == start then we made 0 iterations, so we can't say for sure
+        // that there are no visible edges preceding the start one
+
+        Some((edge, edge == start))
+    }
+
+    pub fn add_point(&mut self, index: usize, triangulation: &mut Triangulation, points: &[Point]) {
+        let point = points[index];
+
+        let (mut start, should_walk_back) = match self.find_visible_edge(point, points) {
+            Some(v) => v,
+            None => return,
+        };
+
+        let mut end = self.next[start];
+
+        let t = triangulation.add_triangle(
+            [start, index, end],
+            [
+                OptionIndex::none(),
+                OptionIndex::none(),
+                self.triangles[start],
+            ],
+        );
+
+        self.triangles[index] = OptionIndex::some(triangulation.legalize(t + 2, points));
+        self.triangles[start] = OptionIndex::some(t);
+
+        loop {
+            let next = self.next[end];
+            let tri = Triangle(point, points[next], points[end]);
+            if !tri.is_right_handed() {
+                break;
+            }
+
+            let t = triangulation.add_triangle(
+                [end, index, next],
+                [
+                    self.triangles[index],
+                    OptionIndex::none(),
+                    self.triangles[end],
+                ],
+            );
+
+            self.triangles[index] = OptionIndex::some(triangulation.legalize(t + 2, points));
+            self.next[end] = end;
+            end = next;
+        }
+
+        if should_walk_back {
+            loop {
+                let prev = self.prev[start];
+                let tri = Triangle(point, points[start], points[prev]);
+                if !tri.is_right_handed() {
+                    break;
                 }
+
+                let t = triangulation.add_triangle(
+                    [prev, index, start],
+                    [
+                        OptionIndex::none(),
+                        self.triangles[start],
+                        self.triangles[prev],
+                    ],
+                );
+
+                triangulation.legalize(t + 2, points);
+
+                self.triangles[prev] = OptionIndex::some(t);
+                self.next[start] = start;
+                start = prev;
             }
-
-            end = Some(i);
         }
 
-        match (start, jump_start, end) {
-            (Some(start), None, Some(end)) if start != end => {
-                self.points.drain(start + 1..=end);
-                self.points.insert(start + 1, new_point);
-            }
+        self.next[start] = index;
+        self.next[index] = end;
 
-            (Some(start), _, Some(end)) if start == end => {
-                self.points.insert(start + 1, new_point);
-            }
+        self.prev[end] = index;
+        self.prev[index] = start;
 
-            (_, Some(jump_start), _) => {
-                let jump_end = jump_end.unwrap();
-                self.points.drain(jump_end + 1..);
-                self.points.drain(..jump_start);
-                self.points.insert(0, new_point);
-            }
-
-            _ => {}
-        }
+        self.add_hash(index, point);
+        self.add_hash(start, points[start]);
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
-pub struct Neighbours(Option<usize>, Option<usize>, Option<usize>);
+/// Calculates the median point (arithmetic mean of the coordinates)
+fn find_center(points: &[Point]) -> Point {
+    let (x_sum, y_sum) = points
+        .iter()
+        .fold((0.0, 0.0), |(x, y), point| (x + point.x, y + point.y));
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
-pub struct SharedEdge(usize, Option<usize>);
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
-pub struct MetaTriangle {
-    triangle: Triangle,
-    circumcircle: Circumcircle,
-    neighbours: Neighbours,
+    Point::new(x_sum / points.len() as f32, y_sum / points.len() as f32)
 }
 
-impl MetaTriangle {
-    pub fn new(triangle: Triangle) -> MetaTriangle {
-        MetaTriangle {
-            triangle,
-            circumcircle: triangle.circumcircle(),
-            neighbours: Neighbours(None, None, None),
-        }
-    }
+fn find_seed_triangle(points: &[Point]) -> (Triangle, [usize; 3]) {
+    let center = find_center(&points);
 
-    pub fn neighbour(&self, a: Point, b: Point) -> Option<usize> {
-        if self.triangle.0 != a && self.triangle.0 != b {
-            self.neighbours.0
-        } else if self.triangle.1 != a && self.triangle.1 != b {
-            self.neighbours.1
-        } else {
-            self.neighbours.2
-        }
-    }
-
-    pub fn neighbour_mut(&mut self, a: Point, b: Point) -> &mut Option<usize> {
-        if self.triangle.0 != a && self.triangle.0 != b {
-            &mut self.neighbours.0
-        } else if self.triangle.1 != a && self.triangle.1 != b {
-            &mut self.neighbours.1
-        } else {
-            &mut self.neighbours.2
-        }
-    }
-
-    pub fn against_edge(&self, a: Point, b: Point) -> Point {
-        if self.triangle.0 != a && self.triangle.0 != b {
-            self.triangle.0
-        } else if self.triangle.1 != a && self.triangle.1 != b {
-            self.triangle.1
-        } else {
-            self.triangle.2
-        }
-    }
-}
-
-pub fn check_and_flip(
-    a_idx: usize,
-    triangles: &mut Vec<MetaTriangle>,
-    edge_table: &mut FnvHashMap<(Point, Point), SharedEdge>,
-) {
-    let a = triangles[a_idx];
-
-    let mut check_edge = |b_idx, edge: (Point, Point)| {
-        let b: MetaTriangle = triangles[b_idx];
-
-        let opposite_a = a.against_edge(edge.0, edge.1);
-        let opposite_b = b.against_edge(edge.0, edge.1);
-
-        if a.circumcircle.center.distance_sq(&opposite_b) >= a.circumcircle.radius_sq {
-            return;
-        }
-
-        let triangle = Triangle(edge.0, opposite_a, opposite_b);
-        triangles[a_idx] = MetaTriangle {
-            triangle,
-            circumcircle: triangle.circumcircle(),
-            neighbours: Neighbours(
-                Some(b_idx),
-                b.neighbour(edge.0, opposite_b),
-                a.neighbour(edge.0, opposite_a),
-            ),
-        };
-
-        let mut neighbour_edge = (edge.0, opposite_b);
-        Point::sort(&mut neighbour_edge.0, &mut neighbour_edge.1);
-
-        if let Some(neighbour) = b.neighbour(edge.0, opposite_b) {
-            *triangles[neighbour].neighbour_mut(edge.0, opposite_b) = Some(a_idx);
-            edge_table.insert(neighbour_edge, SharedEdge(a_idx, Some(neighbour)));
-        } else {
-            edge_table.insert(neighbour_edge, SharedEdge(a_idx, None));
-        }
-
-        let triangle = Triangle(edge.1, opposite_b, opposite_a);
-        triangles[b_idx] = MetaTriangle {
-            triangle,
-            circumcircle: triangle.circumcircle(),
-            neighbours: Neighbours(
-                Some(a_idx),
-                a.neighbour(edge.1, opposite_a),
-                b.neighbour(edge.1, opposite_b),
-            ),
-        };
-
-        let mut neighbour_edge = (edge.1, opposite_a);
-        Point::sort(&mut neighbour_edge.0, &mut neighbour_edge.1);
-
-        if let Some(neighbour) = a.neighbour(edge.1, opposite_a) {
-            *triangles[neighbour].neighbour_mut(edge.1, opposite_a) = Some(b_idx);
-            edge_table.insert(neighbour_edge, SharedEdge(b_idx, Some(neighbour)));
-        } else {
-            edge_table.insert(neighbour_edge, SharedEdge(b_idx, None));
-        }
-
-        check_and_flip(a_idx, triangles, edge_table);
-        check_and_flip(b_idx, triangles, edge_table);
-    };
-
-    a.neighbours
-        .0
-        .map(|b_idx| check_edge(b_idx, (a.triangle.1, a.triangle.2)));
-    a.neighbours
-        .1
-        .map(|b_idx| check_edge(b_idx, (a.triangle.0, a.triangle.2)));
-    a.neighbours
-        .2
-        .map(|b_idx| check_edge(b_idx, (a.triangle.0, a.triangle.1)));
-}
-
-pub fn add_triangle(
-    triangle: Triangle,
-    triangles: &mut Vec<MetaTriangle>,
-    edge_table: &mut FnvHashMap<(Point, Point), SharedEdge>,
-) {
-    let mut mt = MetaTriangle::new(triangle);
-
-    triangles.push(mt);
-    let index = triangles.len() - 1;
-
-    let mut add_edge = |mut a, mut b| {
-        Point::sort(&mut a, &mut b);
-
-        edge_table
-            .entry((a, b))
-            .and_modify(|SharedEdge(old, new)| {
-                *triangles[*old].neighbour_mut(a, b) = Some(index);
-                *mt.neighbour_mut(a, b) = Some(*old);
-                *new = Some(index)
-            })
-            .or_insert_with(|| SharedEdge(index, None));
-    };
-
-    add_edge(triangle.0, triangle.1);
-    add_edge(triangle.1, triangle.2);
-    add_edge(triangle.2, triangle.0);
-
-    triangles[index] = mt;
-
-    check_and_flip(index, triangles, edge_table);
-}
-
-pub fn triangulate(mut points: Vec<Point>) -> Vec<Triangle> {
-    let seed = points.pop().unwrap();
-
-    let (i, &nearest) = points
-        .par_iter()
+    let (seed_idx, seed) = points
+        .iter()
+        .cloned()
         .enumerate()
-        .min_by_key(|(_, &p)| p.distance_sq(&seed))
+        .min_by(|(_, a), (_, b)| {
+            a.distance_sq(center)
+                .partial_cmp(&b.distance_sq(center))
+                .unwrap()
+        })
         .unwrap();
 
-    points.remove(i);
-
-    let (i, &best_third) = points
-        .par_iter()
+    let (nearest_idx, nearest) = points
+        .iter()
+        .cloned()
         .enumerate()
-        .min_by_key(|(_, &p)| Triangle(p, seed, nearest).circumradius_sq())
+        .filter(|&(i, _)| i != seed_idx)
+        .min_by(|(_, a), (_, b)| {
+            a.distance_sq(seed)
+                .partial_cmp(&b.distance_sq(seed))
+                .unwrap()
+        })
         .unwrap();
 
-    points.remove(i);
+    let (third_idx, third) = points
+        .iter()
+        .cloned()
+        .enumerate()
+        .filter(|&(i, _)| i != seed_idx && i != nearest_idx)
+        .min_by(|&(_, a), &(_, b)| {
+            let t0 = Triangle(seed, nearest, a);
+            let t1 = Triangle(seed, nearest, b);
 
-    let mut triangle = Triangle(seed, nearest, best_third);
-    triangle.make_right_handed();
-    let circumcenter = triangle.circumcenter();
+            t0.circumradius_sq()
+                .partial_cmp(&t1.circumradius_sq())
+                .unwrap()
+        })
+        .unwrap();
 
-    points.par_sort_unstable_by_key(|p| p.distance_sq(&circumcenter));
+    let tri = Triangle(seed, nearest, third);
 
-    let mut triangles = vec![];
-    let mut edge_table = Default::default();
-    let mut hull = ConvexHull::new(triangle.0, triangle.1, triangle.2);
+    if tri.is_right_handed() {
+        (tri, [seed_idx, nearest_idx, third_idx])
+    } else {
+        let tri = Triangle(seed, third, nearest);
+        (tri, [seed_idx, third_idx, nearest_idx])
+    }
+}
 
-    add_triangle(triangle, &mut triangles, &mut edge_table);
+pub struct Triangulation {
+    pub triangles: Vec<usize>,
+    pub halfedges: Vec<OptionIndex>,
+    stack: Vec<usize>,
+}
 
-    for point in points {
-        hull.add_point(point, |triangle| {
-            add_triangle(triangle, &mut triangles, &mut edge_table);
-        });
+impl Triangulation {
+    fn with_capacity(cap: usize) -> Triangulation {
+        Triangulation {
+            triangles: Vec::with_capacity(cap * 3),
+            halfedges: vec![OptionIndex::none(); cap * 3],
+            stack: Vec::with_capacity(512),
+        }
     }
 
-    triangles.iter().map(|mt| mt.triangle).collect()
+    fn add_triangle(&mut self, vertices: [usize; 3], halfedges: [OptionIndex; 3]) -> usize {
+        let t = self.triangles.len();
+
+        self.triangles.push(vertices[0]);
+        self.triangles.push(vertices[1]);
+        self.triangles.push(vertices[2]);
+
+        for i in 0..3 {
+            if let Some(e) = halfedges[i].get() {
+                self.halfedges[t + i] = OptionIndex::some(e);
+                self.halfedges[e] = OptionIndex::some(t + i);
+            }
+        }
+
+        t
+    }
+
+    fn legalize(&mut self, index: usize, points: &[Point]) -> usize {
+        self.stack.push(index);
+
+        let mut ar = 0;
+
+        while let Some(a) = self.stack.pop() {
+            let b = match self.halfedges[a].get() {
+                Some(v) => v,
+                None => continue,
+            };
+
+            let a0 = a - a % 3;
+            ar = a0 + (a + 2) % 3;
+
+            let b0 = b - b % 3;
+            let al = a0 + (a + 1) % 3;
+            let bl = b0 + (b + 2) % 3;
+
+            let p0 = self.triangles[ar];
+            let pr = self.triangles[a];
+            let pl = self.triangles[al];
+            let p1 = self.triangles[bl];
+
+            let illegal = Triangle(points[p0], points[pr], points[pl]).in_circumcircle(points[p1]);
+
+            if !illegal {
+                continue;
+            }
+
+            self.triangles[a] = p1;
+            self.triangles[b] = p0;
+
+            let hbl = self.halfedges[bl];
+
+            // edge swapped on the other side of the hull (rare); fix the halfedge reference
+            // if (hbl == -1) {
+            //     let e = this.hullStart;
+            //     do {
+            //         if (this.hullTri[e] === bl) {
+            //             this.hullTri[e] = a;
+            //             break;
+            //         }
+            //         e = this.hullNext[e];
+            //     } while (e !== this.hullStart);
+            // }
+
+            if let Some(e) = hbl.get() {
+                self.halfedges[a] = OptionIndex::some(e);
+                self.halfedges[e] = OptionIndex::some(a);
+            } else {
+                println!("screwed up");
+            }
+
+            if let Some(e) = self.halfedges[ar].get() {
+                self.halfedges[b] = OptionIndex::some(e);
+                self.halfedges[e] = OptionIndex::some(b);
+            }
+            self.halfedges[ar] = OptionIndex::some(bl);
+            self.halfedges[bl] = OptionIndex::some(ar);
+
+            let br = b0 + (b + 1) % 3;
+            self.stack.push(br);
+            self.stack.push(a);
+        }
+
+        ar
+    }
+}
+
+fn triangulate(points: &[Point]) -> Triangulation {
+    assert!(points.len() >= 3);
+
+    let (seed, seed_indices) = find_seed_triangle(points);
+    let seed_circumcenter = seed.circumcenter();
+
+    let mut indices = (0..points.len())
+        .filter(|&i| i != seed_indices[0] && i != seed_indices[1] && i != seed_indices[2])
+        .collect::<Vec<_>>();
+
+    indices.sort_unstable_by(|&a, &b| {
+        points[a]
+            .distance_sq(seed_circumcenter)
+            .partial_cmp(&points[b].distance_sq(seed_circumcenter))
+            .unwrap()
+    });
+
+    let mut hull = Hull::new(seed_indices, &points);
+
+    let max_triangles = 2 * points.len() - 3 - 2;
+    let mut triangulation = Triangulation::with_capacity(max_triangles);
+
+    triangulation.add_triangle(seed_indices, [OptionIndex::none(); 3]);
+
+    for &i in &indices {
+        hull.add_point(i, &mut triangulation, &points);
+    }
+
+    triangulation
 }
 
 fn main() {
+    use image::RgbImage;
+    use imageproc::drawing::{draw_antialiased_line_segment_mut, draw_filled_rect_mut};
+    use imageproc::rect::Rect;
     use rand::Rng;
 
-    let mut points = vec![];
     let mut rng = rand::thread_rng();
+    let mut points = vec![];
 
-    for _ in 0..1000 {
-        let x = rng.gen_range(0.0, 50000.0);
-        let y = rng.gen_range(0.0, 50000.0);
+    for _ in 0..10000 {
+        let x = rng.gen_range(0.0, 1000.0);
+        let y = rng.gen_range(0.0, 1000.0);
         points.push(Point::new(x, y));
     }
 
     let t = std::time::Instant::now();
-    let tris = triangulate(points);
-    eprintln!("elapsed {:?}", t.elapsed());
-    println!("{}", serde_json::to_string(&tris).unwrap());
+    let triangulation = triangulate(&points);
+    println!("elapsed {:?}", t.elapsed());
+
+    let mut im = image::DynamicImage::new_rgb8(1000, 1000);
+    let im = im.as_mut_rgb8().unwrap();
+
+    draw_filled_rect_mut(
+        im,
+        Rect::at(0, 0).of_size(1000, 1000),
+        image::Rgb([255, 255, 255]),
+    );
+
+    fn draw_line(im: &mut RgbImage, a: Point, b: Point) {
+        draw_antialiased_line_segment_mut(
+            im,
+            a.into(),
+            b.into(),
+            image::Rgb([0, 0, 0]),
+            |new, old, fac| {
+                let r = new.data[0] as f32 * fac + old.data[0] as f32 * (1.0 - fac);
+                let g = new.data[1] as f32 * fac + old.data[1] as f32 * (1.0 - fac);
+                let b = new.data[2] as f32 * fac + old.data[2] as f32 * (1.0 - fac);
+                image::Rgb([r as u8, g as u8, b as u8])
+            },
+        );
+    };
+
+    for i in (0..triangulation.triangles.len()).step_by(3) {
+        let a = points[triangulation.triangles[i]];
+        let b = points[triangulation.triangles[i + 1]];
+        let c = points[triangulation.triangles[i + 2]];
+
+        let tri = Triangle(a, b, c);
+
+        if tri.is_zero_area() {
+            println!("rly?");
+        }
+
+        draw_line(im, a, b);
+        draw_line(im, b, c);
+        draw_line(im, c, a);
+    }
+
+    im.save("out.png").unwrap();
 }
