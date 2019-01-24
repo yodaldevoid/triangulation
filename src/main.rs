@@ -1,6 +1,6 @@
 #![allow(clippy::float_cmp)]
 
-#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OptionIndex(usize);
 
 impl OptionIndex {
@@ -234,6 +234,10 @@ impl Hull {
         hull.prev[seed[1]] = seed[0];
         hull.prev[seed[2]] = seed[1];
 
+        hull.triangles[seed[0]] = OptionIndex::some(0);
+        hull.triangles[seed[1]] = OptionIndex::some(1);
+        hull.triangles[seed[2]] = OptionIndex::some(2);
+
         hull.add_hash(seed[0], points[seed[0]]);
         hull.add_hash(seed[1], points[seed[1]]);
         hull.add_hash(seed[2], points[seed[2]]);
@@ -454,8 +458,8 @@ impl Triangulation {
         self.triangles.push(vertices[1]);
         self.triangles.push(vertices[2]);
 
-        for i in 0..3 {
-            if let Some(e) = halfedges[i].get() {
+        for (i, &halfedge) in halfedges.iter().enumerate() {
+            if let Some(e) = halfedge.get() {
                 self.halfedges[t + i] = OptionIndex::some(e);
                 self.halfedges[e] = OptionIndex::some(t + i);
             }
@@ -470,13 +474,13 @@ impl Triangulation {
         let mut ar = 0;
 
         while let Some(a) = self.stack.pop() {
+            let a0 = a - a % 3;
+            ar = a0 + (a + 2) % 3;
+
             let b = match self.halfedges[a].get() {
                 Some(v) => v,
                 None => continue,
             };
-
-            let a0 = a - a % 3;
-            ar = a0 + (a + 2) % 3;
 
             let b0 = b - b % 3;
             let al = a0 + (a + 1) % 3;
@@ -498,6 +502,7 @@ impl Triangulation {
 
             let hbl = self.halfedges[bl];
 
+            // TODO:
             // edge swapped on the other side of the hull (rare); fix the halfedge reference
             // if (hbl == -1) {
             //     let e = this.hullStart;
@@ -510,17 +515,19 @@ impl Triangulation {
             //     } while (e !== this.hullStart);
             // }
 
+            self.halfedges[a] = hbl;
+
             if let Some(e) = hbl.get() {
-                self.halfedges[a] = OptionIndex::some(e);
                 self.halfedges[e] = OptionIndex::some(a);
             } else {
                 println!("screwed up");
             }
 
+            self.halfedges[b] = self.halfedges[ar];
             if let Some(e) = self.halfedges[ar].get() {
-                self.halfedges[b] = OptionIndex::some(e);
                 self.halfedges[e] = OptionIndex::some(b);
             }
+
             self.halfedges[ar] = OptionIndex::some(bl);
             self.halfedges[bl] = OptionIndex::some(ar);
 
@@ -550,7 +557,7 @@ fn triangulate(points: &[Point]) -> Triangulation {
             .unwrap()
     });
 
-    let mut hull = Hull::new(seed_indices, &points);
+    let mut hull = Hull::new(seed_indices, points);
 
     let max_triangles = 2 * points.len() - 3 - 2;
     let mut triangulation = Triangulation::with_capacity(max_triangles);
@@ -558,7 +565,7 @@ fn triangulate(points: &[Point]) -> Triangulation {
     triangulation.add_triangle(seed_indices, [OptionIndex::none(); 3]);
 
     for &i in &indices {
-        hull.add_point(i, &mut triangulation, &points);
+        hull.add_point(i, &mut triangulation, points);
     }
 
     triangulation
@@ -573,9 +580,9 @@ fn main() {
     let mut rng = rand::thread_rng();
     let mut points = vec![];
 
-    for _ in 0..10000 {
-        let x = rng.gen_range(0.0, 1000.0);
-        let y = rng.gen_range(0.0, 1000.0);
+    for _ in 0..100_000 {
+        let x = rng.gen_range(0.0, 5000.0);
+        let y = rng.gen_range(0.0, 5000.0);
         points.push(Point::new(x, y));
     }
 
@@ -583,12 +590,12 @@ fn main() {
     let triangulation = triangulate(&points);
     println!("elapsed {:?}", t.elapsed());
 
-    let mut im = image::DynamicImage::new_rgb8(1000, 1000);
+    let mut im = image::DynamicImage::new_rgb8(5000, 5000);
     let im = im.as_mut_rgb8().unwrap();
 
     draw_filled_rect_mut(
         im,
-        Rect::at(0, 0).of_size(1000, 1000),
+        Rect::at(0, 0).of_size(5000, 5000),
         image::Rgb([255, 255, 255]),
     );
 
@@ -599,9 +606,9 @@ fn main() {
             b.into(),
             image::Rgb([0, 0, 0]),
             |new, old, fac| {
-                let r = new.data[0] as f32 * fac + old.data[0] as f32 * (1.0 - fac);
-                let g = new.data[1] as f32 * fac + old.data[1] as f32 * (1.0 - fac);
-                let b = new.data[2] as f32 * fac + old.data[2] as f32 * (1.0 - fac);
+                let r = f32::from(new.data[0]) * fac + f32::from(old.data[0]) * (1.0 - fac);
+                let g = f32::from(new.data[1]) * fac + f32::from(old.data[1]) * (1.0 - fac);
+                let b = f32::from(new.data[2]) * fac + f32::from(old.data[2]) * (1.0 - fac);
                 image::Rgb([r as u8, g as u8, b as u8])
             },
         );
@@ -611,12 +618,6 @@ fn main() {
         let a = points[triangulation.triangles[i]];
         let b = points[triangulation.triangles[i + 1]];
         let c = points[triangulation.triangles[i + 2]];
-
-        let tri = Triangle(a, b, c);
-
-        if tri.is_zero_area() {
-            println!("rly?");
-        }
 
         draw_line(im, a, b);
         draw_line(im, b, c);
