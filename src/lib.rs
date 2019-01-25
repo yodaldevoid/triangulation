@@ -60,12 +60,6 @@ impl Into<(f32, f32)> for Point {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Circumcircle {
-    pub radius_sq: f32,
-    pub center: Point,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Triangle(pub Point, pub Point, pub Point);
 
