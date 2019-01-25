@@ -1,4 +1,4 @@
-#![allow(clippy::float_cmp)]
+use rayon::prelude::*;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OptionIndex(usize);
@@ -46,18 +46,6 @@ impl Point {
         let dy = self.y - other.y;
         dx * dx + dy * dy
     }
-
-    pub fn sort(a: &mut Point, b: &mut Point) {
-        if a.y < b.y {
-            return;
-        }
-
-        if a.y == b.y && a.x < a.y {
-            return;
-        }
-
-        std::mem::swap(a, b);
-    }
 }
 
 impl Into<(i32, i32)> for Point {
@@ -79,7 +67,7 @@ pub struct Circumcircle {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Triangle(pub Point, pub Point, pub Point);
+struct Triangle(pub Point, pub Point, pub Point);
 
 impl Triangle {
     fn circumcircle_delta(self) -> (f32, f32) {
@@ -107,29 +95,17 @@ impl Triangle {
         (dx, dy)
     }
 
-    pub fn circumradius_sq(self) -> f32 {
+    fn circumradius_sq(self) -> f32 {
         let (x, y) = self.circumcircle_delta();
         x * x + y * y
     }
 
-    pub fn circumcenter(self) -> Point {
+    fn circumcenter(self) -> Point {
         let (x, y) = self.circumcircle_delta();
 
         Point {
             x: x + self.0.x,
             y: y + self.0.y,
-        }
-    }
-
-    pub fn circumcircle(self) -> Circumcircle {
-        let (x, y) = self.circumcircle_delta();
-
-        Circumcircle {
-            radius_sq: x * x + y * y,
-            center: Point {
-                x: x + self.0.x,
-                y: y + self.0.y,
-            },
         }
     }
 
@@ -142,25 +118,15 @@ impl Triangle {
         v21x * v23y - v21y * v23x
     }
 
-    pub fn is_right_handed(self) -> bool {
+    fn is_right_handed(self) -> bool {
         self.orientation() > 0.0
     }
 
-    pub fn is_left_handed(self) -> bool {
+    fn is_left_handed(self) -> bool {
         self.orientation() < 0.0
     }
 
-    pub fn make_right_handed(&mut self) {
-        if !self.is_right_handed() {
-            std::mem::swap(&mut self.1, &mut self.2);
-        }
-    }
-
-    pub fn is_zero_area(self) -> bool {
-        self.orientation() == 0.0
-    }
-
-    pub fn in_circumcircle(self, point: Point) -> bool {
+    fn in_circumcircle(self, point: Point) -> bool {
         let dx = self.0.x - point.x;
         let dy = self.0.y - point.y;
         let ex = self.1.x - point.x;
@@ -212,7 +178,7 @@ struct Hull {
 }
 
 impl Hull {
-    pub fn new(seed: [usize; 3], points: &[Point]) -> Hull {
+    fn new(seed: [usize; 3], points: &[Point]) -> Hull {
         let capacity = points.len();
         let table_size = (capacity as f32).sqrt().ceil() as usize;
 
@@ -297,7 +263,7 @@ impl Hull {
         Some((edge, edge == start))
     }
 
-    pub fn add_point(&mut self, index: usize, triangulation: &mut Triangulation, points: &[Point]) {
+    fn add_point(&mut self, index: usize, triangulation: &mut Triangulation, points: &[Point]) {
         let point = points[index];
 
         let (mut start, should_walk_back) = match self.find_visible_edge(point, points) {
@@ -389,7 +355,7 @@ fn find_seed_triangle(points: &[Point]) -> (Triangle, [usize; 3]) {
     let center = find_center(&points);
 
     let (seed_idx, seed) = points
-        .iter()
+        .par_iter()
         .cloned()
         .enumerate()
         .min_by(|(_, a), (_, b)| {
@@ -400,7 +366,7 @@ fn find_seed_triangle(points: &[Point]) -> (Triangle, [usize; 3]) {
         .unwrap();
 
     let (nearest_idx, nearest) = points
-        .iter()
+        .par_iter()
         .cloned()
         .enumerate()
         .filter(|&(i, _)| i != seed_idx)
@@ -412,7 +378,7 @@ fn find_seed_triangle(points: &[Point]) -> (Triangle, [usize; 3]) {
         .unwrap();
 
     let (third_idx, third) = points
-        .iter()
+        .par_iter()
         .cloned()
         .enumerate()
         .filter(|&(i, _)| i != seed_idx && i != nearest_idx)
@@ -520,7 +486,7 @@ impl Triangulation {
             if let Some(e) = hbl.get() {
                 self.halfedges[e] = OptionIndex::some(a);
             } else {
-                println!("screwed up");
+                // println!("screwed up");
             }
 
             self.halfedges[b] = self.halfedges[ar];
@@ -540,7 +506,7 @@ impl Triangulation {
     }
 }
 
-fn triangulate(points: &[Point]) -> Triangulation {
+pub fn triangulate(points: &[Point]) -> Triangulation {
     assert!(points.len() >= 3);
 
     let (seed, seed_indices) = find_seed_triangle(points);
@@ -550,7 +516,7 @@ fn triangulate(points: &[Point]) -> Triangulation {
         .filter(|&i| i != seed_indices[0] && i != seed_indices[1] && i != seed_indices[2])
         .collect::<Vec<_>>();
 
-    indices.sort_unstable_by(|&a, &b| {
+    indices.par_sort_by(|&a, &b| {
         points[a]
             .distance_sq(seed_circumcenter)
             .partial_cmp(&points[b].distance_sq(seed_circumcenter))
@@ -569,60 +535,4 @@ fn triangulate(points: &[Point]) -> Triangulation {
     }
 
     triangulation
-}
-
-fn main() {
-    use image::RgbImage;
-    use imageproc::drawing::{draw_antialiased_line_segment_mut, draw_filled_rect_mut};
-    use imageproc::rect::Rect;
-    use rand::Rng;
-
-    let mut rng = rand::thread_rng();
-    let mut points = vec![];
-
-    for _ in 0..100_000 {
-        let x = rng.gen_range(0.0, 5000.0);
-        let y = rng.gen_range(0.0, 5000.0);
-        points.push(Point::new(x, y));
-    }
-
-    let t = std::time::Instant::now();
-    let triangulation = triangulate(&points);
-    println!("elapsed {:?}", t.elapsed());
-
-    let mut im = image::DynamicImage::new_rgb8(5000, 5000);
-    let im = im.as_mut_rgb8().unwrap();
-
-    draw_filled_rect_mut(
-        im,
-        Rect::at(0, 0).of_size(5000, 5000),
-        image::Rgb([255, 255, 255]),
-    );
-
-    fn draw_line(im: &mut RgbImage, a: Point, b: Point) {
-        draw_antialiased_line_segment_mut(
-            im,
-            a.into(),
-            b.into(),
-            image::Rgb([0, 0, 0]),
-            |new, old, fac| {
-                let r = f32::from(new.data[0]) * fac + f32::from(old.data[0]) * (1.0 - fac);
-                let g = f32::from(new.data[1]) * fac + f32::from(old.data[1]) * (1.0 - fac);
-                let b = f32::from(new.data[2]) * fac + f32::from(old.data[2]) * (1.0 - fac);
-                image::Rgb([r as u8, g as u8, b as u8])
-            },
-        );
-    };
-
-    for i in (0..triangulation.triangles.len()).step_by(3) {
-        let a = points[triangulation.triangles[i]];
-        let b = points[triangulation.triangles[i + 1]];
-        let c = points[triangulation.triangles[i + 2]];
-
-        draw_line(im, a, b);
-        draw_line(im, b, c);
-        draw_line(im, c, a);
-    }
-
-    im.save("out.png").unwrap();
 }
