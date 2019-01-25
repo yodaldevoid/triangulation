@@ -58,6 +58,13 @@ impl Point {
         let dy = self.y - other.y;
         dx * dx + dy * dy
     }
+
+    /// Returns true if points are approximately equal
+    pub fn approx_eq(self, other: Point) -> bool {
+        let dx = self.x - other.x;
+        let dy = self.y - other.y;
+        dx.abs() <= std::f32::EPSILON && dy.abs() <= std::f32::EPSILON
+    }
 }
 
 impl Into<(i32, i32)> for Point {
@@ -455,8 +462,19 @@ impl Delaunay {
 
         triangulation.add_triangle(seed_indices, [OptionIndex::none(); 3]);
 
+        let mut prev_point: Option<Point> = None;
+
         for &i in &indices {
+            let point = points[i];
+
+            if let Some(p) = prev_point {
+                if p.approx_eq(point) {
+                    continue;
+                }
+            }
+
             hull.add_point(i, &mut triangulation, points);
+            prev_point = Some(point);
         }
 
         triangulation.stack.shrink_to_fit();
