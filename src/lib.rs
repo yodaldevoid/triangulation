@@ -1,3 +1,4 @@
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
 /// Option<usize>, where None is represented by -1
@@ -359,8 +360,14 @@ fn find_center(points: &[Point]) -> Point {
 fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
     let center = find_center(&points);
 
-    let (seed_idx, seed) = points
-        .par_iter()
+    #[cfg(feature = "rayon")]
+    let iter = points.par_iter();
+
+    #[cfg(not(feature = "rayon"))]
+    let iter = points.iter();
+
+    let (seed_idx, seed) = iter
+        .clone()
         .cloned()
         .enumerate()
         .min_by(|(_, a), (_, b)| {
@@ -369,8 +376,8 @@ fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
                 .unwrap()
         })?;
 
-    let (nearest_idx, nearest) = points
-        .par_iter()
+    let (nearest_idx, nearest) = iter
+        .clone()
         .cloned()
         .enumerate()
         .filter(|&(i, _)| i != seed_idx)
@@ -380,8 +387,7 @@ fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
                 .unwrap()
         })?;
 
-    let (third_idx, third) = points
-        .par_iter()
+    let (third_idx, third) = iter
         .cloned()
         .enumerate()
         .filter(|&(i, _)| i != seed_idx && i != nearest_idx)
@@ -428,12 +434,18 @@ impl Delaunay {
             .filter(|&i| i != seed_indices[0] && i != seed_indices[1] && i != seed_indices[2])
             .collect::<Vec<_>>();
 
-        indices.par_sort_by(|&a, &b| {
+        let cmp = |&a: &usize, &b: &usize| {
             points[a]
                 .distance_sq(seed_circumcenter)
                 .partial_cmp(&points[b].distance_sq(seed_circumcenter))
                 .unwrap()
-        });
+        };
+
+        #[cfg(feature = "rayon")]
+        indices.par_sort_by(cmp);
+
+        #[cfg(not(feature = "rayon"))]
+        indices.sort_by(cmp);
 
         let mut hull = Hull::new(seed_indices, points);
 
