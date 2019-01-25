@@ -6,6 +6,22 @@ Rust port of [delaunator](https://github.com/mapbox/delaunator).
 
 WASM based browser demo. See `wasm-demo/` folder.
 
+## Example
+
+```rust
+use triangulation::{Delaunay, Point};
+
+let points = vec![
+    Point::new(10.0, 10.0),
+    Point::new(100.0, 20.0),
+    Point::new(60.0, 120.0),
+    Point::new(80.0, 100.0)
+];
+
+let triangulation = Delaunay::new(&points).unwrap();
+assert_eq!(&triangulation.triangles, &[3, 0, 2, 3, 1, 0]);
+```
+
 ## License
 
 This project is licensed like the Rust language itself under either of

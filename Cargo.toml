@@ -1,8 +1,19 @@
 [package]
 name = "triangulation"
 version = "0.1.0"
-authors = ["LeshaInc <includeurl@gmail.com>"]
 edition = "2018"
+
+authors = ["LeshaInc <includeurl@gmail.com>"]
+description = "A collection of triangulation algorithms"
+repository = "https://gitlab.com/LeshaInc/triangulation"
+readme = "README.md"
+keywords = ["geometry", "triangulation", "delaunay"]
+categories = ["algorithms"]
+license = "MIT OR Apache-2.0"
+
+exclude = [
+    "wasm-demo/*"
+]
 
 [features]
 default = []
