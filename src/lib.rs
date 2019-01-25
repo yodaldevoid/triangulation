@@ -1,26 +1,34 @@
 use rayon::prelude::*;
 
+/// Option<usize>, where None is represented by -1
+///
+/// Takes 8 bytes instead of 16.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OptionIndex(usize);
 
 impl OptionIndex {
+    /// Returns `Some(idx)` value
     pub fn some(idx: usize) -> OptionIndex {
         debug_assert!(idx < std::usize::MAX);
         OptionIndex(idx)
     }
 
+    /// Returns None value
     pub fn none() -> OptionIndex {
         OptionIndex(std::usize::MAX)
     }
 
+    /// Returns true if it is a `Some` value
     pub fn is_some(self) -> bool {
         self != OptionIndex::none()
     }
 
+    /// Returns true if it is a `None` value
     pub fn is_none(self) -> bool {
         self == OptionIndex::none()
     }
 
+    /// Returns the associated `Option` value
     pub fn get(self) -> Option<usize> {
         if self.is_some() {
             Some(self.0)
@@ -30,6 +38,7 @@ impl OptionIndex {
     }
 }
 
+/// 2D point represented by x and y coordinates
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Point {
     pub x: f32,
@@ -37,10 +46,12 @@ pub struct Point {
 }
 
 impl Point {
+    /// Creates a new point
     pub fn new(x: f32, y: f32) -> Point {
         Point { x, y }
     }
 
+    /// Returns square of the distance between `self` and `other` point
     pub fn distance_sq(self, other: Point) -> f32 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
@@ -393,13 +404,22 @@ fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
     }
 }
 
+/// Delaunay triangulation represented by DCEL (doubly connected edge list)
 pub struct Delaunay {
+    /// Maps edge id to start point id
     pub triangles: Vec<usize>,
+
+    /// Maps edge id to the opposite edge id in the adjacent triangle, if it exists
     pub halfedges: Vec<OptionIndex>,
+
     stack: Vec<usize>,
 }
 
 impl Delaunay {
+    /// Creates delaunay triangulation of given points, if it exists
+    ///
+    /// Delaunay triangulation does not exist if and only if all points lie on the same line
+    /// or there are less than three points.
     pub fn new(points: &[Point]) -> Option<Delaunay> {
         let (seed, seed_indices) = find_seed_triangle(points)?;
         let seed_circumcenter = seed.circumcenter();
