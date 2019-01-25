@@ -13,12 +13,15 @@ pages:
   allow_failure: yes
   script:
   - curl -sL https://deb.nodesource.com/setup_11.x | bash -
-  - apt-get install nodejs
+  - apt-get install -yqq nodejs
   - node -v && npm -v && rustc --version && cargo --version      # Print version info for debugging
   - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
   - bash build-demo.sh
+  - cargo doc --all --verbose
   - rm -rf public
   - mv wasm-demo/www/dist/ public
+  - mv target/doc public/
+  - echo "<meta http-equiv=refresh content=0;url=triangulation/index.html>" > public/doc/index.html
   artifacts:
     paths:
     - public

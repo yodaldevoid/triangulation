@@ -1,10 +1,13 @@
 Rust port of [delaunator](https://github.com/mapbox/delaunator).
 
-![plot](img/plot.png)
-
 ## [Demo](https://leshainc.gitlab.io/triangulation/)
 
 WASM based browser demo. See `wasm-demo/` folder.
+
+## Documentation
+
+ - [master branch](https://leshainc.gitlab.io/triangulation/doc)
+ - [release](https://docs.rs/triangulation)
 
 ## Example
 
@@ -21,6 +24,12 @@ let points = vec![
 let triangulation = Delaunay::new(&points).unwrap();
 assert_eq!(&triangulation.triangles, &[3, 0, 2, 3, 1, 0]);
 ```
+
+## Performance
+
+![plot](img/plot.png)
+
+Tests performed on Intel Core i5-2500 CPU @ 3.30GHz x 4
 
 ## License
 
