@@ -1,6 +1,8 @@
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
+const STACK_CAPACITY: usize = 512;
+
 /// Option<usize>, where None is represented by -1
 ///
 /// Takes 8 bytes instead of 16.
@@ -485,7 +487,7 @@ impl Delaunay {
         Delaunay {
             triangles: Vec::with_capacity(cap * 3),
             halfedges: vec![OptionIndex::none(); cap * 3],
-            stack: Vec::with_capacity(512),
+            stack: Vec::with_capacity(STACK_CAPACITY),
         }
     }
 
@@ -570,6 +572,11 @@ impl Delaunay {
             self.halfedges[bl] = OptionIndex::some(ar);
 
             let br = b0 + (b + 1) % 3;
+
+            if self.stack.len() >= STACK_CAPACITY {
+                continue;
+            }
+
             self.stack.push(br);
             self.stack.push(a);
         }
