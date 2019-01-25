@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use structopt::StructOpt;
 use image::RgbImage;
 use imageproc::drawing::{draw_antialiased_line_segment_mut, draw_filled_rect_mut};
 use imageproc::rect::Rect;
 use rand::Rng;
+use structopt::StructOpt;
 
 use triangulation::{Delaunay, Point};
 
@@ -44,7 +44,11 @@ fn main() {
 
     let t = std::time::Instant::now();
     let triangulation = Delaunay::new(&points).unwrap();
-    println!("Created {} triangles in {:?}", triangulation.triangles.len(), t.elapsed());
+    println!(
+        "Created {} triangles in {:?}",
+        triangulation.triangles.len(),
+        t.elapsed()
+    );
 
     let t = std::time::Instant::now();
     let mut im = image::DynamicImage::new_rgb8(opt.width, opt.height);

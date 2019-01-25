@@ -181,6 +181,9 @@ struct Hull {
 
     /// Center point for calculating radial hash
     center: Point,
+
+    /// Starting point index
+    start: usize,
 }
 
 impl Hull {
@@ -195,6 +198,7 @@ impl Hull {
             prev: vec![0; capacity],
             hash_table: vec![OptionIndex::none(); table_size],
             triangles: vec![OptionIndex::none(); capacity],
+            start: seed[0],
             center,
         };
 
@@ -288,7 +292,7 @@ impl Hull {
             ],
         );
 
-        self.triangles[index] = OptionIndex::some(triangulation.legalize(t + 2, points));
+        self.triangles[index] = OptionIndex::some(triangulation.legalize(t + 2, points, self));
         self.triangles[start] = OptionIndex::some(t);
 
         loop {
@@ -307,7 +311,7 @@ impl Hull {
                 ],
             );
 
-            self.triangles[index] = OptionIndex::some(triangulation.legalize(t + 2, points));
+            self.triangles[index] = OptionIndex::some(triangulation.legalize(t + 2, points, self));
             self.next[end] = end;
             end = next;
         }
@@ -329,7 +333,7 @@ impl Hull {
                     ],
                 );
 
-                triangulation.legalize(t + 2, points);
+                triangulation.legalize(t + 2, points, self);
 
                 self.triangles[prev] = OptionIndex::some(t);
                 self.next[start] = start;
@@ -337,6 +341,7 @@ impl Hull {
             }
         }
 
+        self.start = start;
         self.next[start] = index;
         self.next[index] = end;
 
@@ -366,15 +371,11 @@ fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
     #[cfg(not(feature = "rayon"))]
     let iter = points.iter();
 
-    let (seed_idx, seed) = iter
-        .clone()
-        .cloned()
-        .enumerate()
-        .min_by(|(_, a), (_, b)| {
-            a.distance_sq(center)
-                .partial_cmp(&b.distance_sq(center))
-                .unwrap()
-        })?;
+    let (seed_idx, seed) = iter.clone().cloned().enumerate().min_by(|(_, a), (_, b)| {
+        a.distance_sq(center)
+            .partial_cmp(&b.distance_sq(center))
+            .unwrap()
+    })?;
 
     let (nearest_idx, nearest) = iter
         .clone()
@@ -487,7 +488,7 @@ impl Delaunay {
         t
     }
 
-    fn legalize(&mut self, index: usize, points: &[Point]) -> usize {
+    fn legalize(&mut self, index: usize, points: &[Point], hull: &mut Hull) -> usize {
         self.stack.push(index);
 
         let mut ar = 0;
@@ -521,25 +522,25 @@ impl Delaunay {
 
             let hbl = self.halfedges[bl];
 
-            // TODO:
-            // edge swapped on the other side of the hull (rare); fix the halfedge reference
-            // if (hbl == -1) {
-            //     let e = this.hullStart;
-            //     do {
-            //         if (this.hullTri[e] === bl) {
-            //             this.hullTri[e] = a;
-            //             break;
-            //         }
-            //         e = this.hullNext[e];
-            //     } while (e !== this.hullStart);
-            // }
-
             self.halfedges[a] = hbl;
 
             if let Some(e) = hbl.get() {
                 self.halfedges[e] = OptionIndex::some(a);
             } else {
-                // println!("screwed up");
+                let mut edge = hull.start;
+
+                loop {
+                    if hull.triangles[edge] == OptionIndex::some(bl) {
+                        hull.triangles[edge] = OptionIndex::some(a);
+                        break;
+                    }
+
+                    edge = hull.next[edge];
+
+                    if edge == hull.start {
+                        break;
+                    }
+                }
             }
 
             self.halfedges[b] = self.halfedges[ar];
