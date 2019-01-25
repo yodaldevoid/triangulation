@@ -1,0 +1,26 @@
+image: "rust:latest"
+
+before_script:
+  - apt-get update -yqq
+  - apt-get install -yqq --no-install-recommends build-essential libfontconfig libfontconfig1-dev cmake curl software-properties-common
+
+test:cargo:
+  script:
+  - rustc --version && cargo --version      # Print version info for debugging
+  - cargo test --all --verbose
+
+pages:
+  allow_failure: yes
+  script:
+  - curl -sL https://deb.nodesource.com/setup_11.x | bash -
+  - apt-get install nodejs
+  - node -v && npm -v && rustc --version && cargo --version      # Print version info for debugging
+  - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+  - bash build-demo.sh
+  - rm -rf public
+  - mv wasm-demo/www/dist/ public
+  artifacts:
+    paths:
+    - public
+  only:
+  - master
