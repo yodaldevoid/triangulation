@@ -2,6 +2,10 @@ Rust port of [delaunator](https://github.com/mapbox/delaunator).
 
 ![plot](img/plot.png)
 
+## [Demo](https://leshainc.gitlab.io/triangulation/)
+
+WASM based browser demo. See `wasm-demo/` folder.
+
 ## License
 
 This project is licensed like the Rust language itself under either of
