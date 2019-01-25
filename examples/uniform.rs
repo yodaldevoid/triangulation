@@ -6,7 +6,7 @@ use imageproc::drawing::{draw_antialiased_line_segment_mut, draw_filled_rect_mut
 use imageproc::rect::Rect;
 use rand::Rng;
 
-use triangulation::{triangulate, Point};
+use triangulation::{Delaunay, Point};
 
 /// Triangulates a set of normally distributed random points
 /// and saves the result as a PNG image
@@ -43,7 +43,7 @@ fn main() {
     }
 
     let t = std::time::Instant::now();
-    let triangulation = triangulate(&points);
+    let triangulation = Delaunay::new(&points).unwrap();
     println!("Created {} triangles in {:?}", triangulation.triangles.len(), t.elapsed());
 
     let t = std::time::Instant::now();

@@ -263,7 +263,7 @@ impl Hull {
         Some((edge, edge == start))
     }
 
-    fn add_point(&mut self, index: usize, triangulation: &mut Triangulation, points: &[Point]) {
+    fn add_point(&mut self, index: usize, triangulation: &mut Delaunay, points: &[Point]) {
         let point = points[index];
 
         let (mut start, should_walk_back) = match self.find_visible_edge(point, points) {
@@ -351,7 +351,7 @@ fn find_center(points: &[Point]) -> Point {
     Point::new(x_sum / points.len() as f32, y_sum / points.len() as f32)
 }
 
-fn find_seed_triangle(points: &[Point]) -> (Triangle, [usize; 3]) {
+fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
     let center = find_center(&points);
 
     let (seed_idx, seed) = points
@@ -362,8 +362,7 @@ fn find_seed_triangle(points: &[Point]) -> (Triangle, [usize; 3]) {
             a.distance_sq(center)
                 .partial_cmp(&b.distance_sq(center))
                 .unwrap()
-        })
-        .unwrap();
+        })?;
 
     let (nearest_idx, nearest) = points
         .par_iter()
@@ -374,8 +373,7 @@ fn find_seed_triangle(points: &[Point]) -> (Triangle, [usize; 3]) {
             a.distance_sq(seed)
                 .partial_cmp(&b.distance_sq(seed))
                 .unwrap()
-        })
-        .unwrap();
+        })?;
 
     let (third_idx, third) = points
         .par_iter()
@@ -389,28 +387,57 @@ fn find_seed_triangle(points: &[Point]) -> (Triangle, [usize; 3]) {
             t0.circumradius_sq()
                 .partial_cmp(&t1.circumradius_sq())
                 .unwrap()
-        })
-        .unwrap();
+        })?;
 
     let tri = Triangle(seed, nearest, third);
 
     if tri.is_right_handed() {
-        (tri, [seed_idx, nearest_idx, third_idx])
+        Some((tri, [seed_idx, nearest_idx, third_idx]))
     } else {
         let tri = Triangle(seed, third, nearest);
-        (tri, [seed_idx, third_idx, nearest_idx])
+        Some((tri, [seed_idx, third_idx, nearest_idx]))
     }
 }
 
-pub struct Triangulation {
+pub struct Delaunay {
     pub triangles: Vec<usize>,
     pub halfedges: Vec<OptionIndex>,
     stack: Vec<usize>,
 }
 
-impl Triangulation {
-    fn with_capacity(cap: usize) -> Triangulation {
-        Triangulation {
+impl Delaunay {
+    pub fn new(points: &[Point]) -> Option<Delaunay> {
+        let (seed, seed_indices) = find_seed_triangle(points)?;
+        let seed_circumcenter = seed.circumcenter();
+
+        let mut indices = (0..points.len())
+            .filter(|&i| i != seed_indices[0] && i != seed_indices[1] && i != seed_indices[2])
+            .collect::<Vec<_>>();
+
+        indices.par_sort_by(|&a, &b| {
+            points[a]
+                .distance_sq(seed_circumcenter)
+                .partial_cmp(&points[b].distance_sq(seed_circumcenter))
+                .unwrap()
+        });
+
+        let mut hull = Hull::new(seed_indices, points);
+
+        let max_triangles = 2 * points.len() - 3 - 2;
+        let mut triangulation = Delaunay::with_capacity(max_triangles);
+
+        triangulation.add_triangle(seed_indices, [OptionIndex::none(); 3]);
+
+        for &i in &indices {
+            hull.add_point(i, &mut triangulation, points);
+        }
+
+        triangulation.stack.shrink_to_fit();
+        Some(triangulation)
+    }
+
+    fn with_capacity(cap: usize) -> Delaunay {
+        Delaunay {
             triangles: Vec::with_capacity(cap * 3),
             halfedges: vec![OptionIndex::none(); cap * 3],
             stack: Vec::with_capacity(512),
@@ -504,35 +531,4 @@ impl Triangulation {
 
         ar
     }
-}
-
-pub fn triangulate(points: &[Point]) -> Triangulation {
-    assert!(points.len() >= 3);
-
-    let (seed, seed_indices) = find_seed_triangle(points);
-    let seed_circumcenter = seed.circumcenter();
-
-    let mut indices = (0..points.len())
-        .filter(|&i| i != seed_indices[0] && i != seed_indices[1] && i != seed_indices[2])
-        .collect::<Vec<_>>();
-
-    indices.par_sort_by(|&a, &b| {
-        points[a]
-            .distance_sq(seed_circumcenter)
-            .partial_cmp(&points[b].distance_sq(seed_circumcenter))
-            .unwrap()
-    });
-
-    let mut hull = Hull::new(seed_indices, points);
-
-    let max_triangles = 2 * points.len() - 3 - 2;
-    let mut triangulation = Triangulation::with_capacity(max_triangles);
-
-    triangulation.add_triangle(seed_indices, [OptionIndex::none(); 3]);
-
-    for &i in &indices {
-        hull.add_point(i, &mut triangulation, points);
-    }
-
-    triangulation
 }
