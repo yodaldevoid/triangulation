@@ -1,6 +1,11 @@
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
+pub mod dcel;
+pub mod geom;
+
+pub use geom::{Point, Triangle};
+
 const STACK_CAPACITY: usize = 100;
 
 /// Option<usize>, where None is represented by -1
@@ -41,136 +46,9 @@ impl OptionIndex {
     }
 }
 
-/// 2D point represented by x and y coordinates
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct Point {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Point {
-    /// Creates a new point
-    pub fn new(x: f32, y: f32) -> Point {
-        Point { x, y }
-    }
-
-    /// Returns square of the distance between `self` and `other` point
-    pub fn distance_sq(self, other: Point) -> f32 {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        dx * dx + dy * dy
-    }
-
-    /// Returns true if points are approximately equal
-    pub fn approx_eq(self, other: Point) -> bool {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        dx.abs() <= std::f32::EPSILON && dy.abs() <= std::f32::EPSILON
-    }
-}
-
-impl Into<(i32, i32)> for Point {
-    fn into(self) -> (i32, i32) {
-        (self.x as i32, self.y as i32)
-    }
-}
-
-impl Into<(f32, f32)> for Point {
-    fn into(self) -> (f32, f32) {
-        (self.x, self.y)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Triangle(pub Point, pub Point, pub Point);
-
-impl Triangle {
-    fn circumcircle_delta(self) -> (f32, f32) {
-        let p = Point {
-            x: self.1.x - self.0.x,
-            y: self.1.y - self.0.y,
-        };
-
-        let q = Point {
-            x: self.2.x - self.0.x,
-            y: self.2.y - self.0.y,
-        };
-
-        let p2 = p.x * p.x + p.y * p.y;
-        let q2 = q.x * q.x + q.y * q.y;
-        let d = 2.0 * (p.x * q.y - p.y * q.x);
-
-        if d == 0.0 {
-            return (std::f32::INFINITY, std::f32::INFINITY);
-        }
-
-        let dx = (q.y * p2 - p.y * q2) / d;
-        let dy = (p.x * q2 - q.x * p2) / d;
-
-        (dx, dy)
-    }
-
-    fn circumradius_sq(self) -> f32 {
-        let (x, y) = self.circumcircle_delta();
-        x * x + y * y
-    }
-
-    fn circumcenter(self) -> Point {
-        let (x, y) = self.circumcircle_delta();
-
-        Point {
-            x: x + self.0.x,
-            y: y + self.0.y,
-        }
-    }
-
-    /// Returns the cross product of vectors 1--0 and 1--2
-    fn orientation(self) -> f32 {
-        let v21x = self.0.x - self.1.x;
-        let v21y = self.0.y - self.1.y;
-        let v23x = self.2.x - self.1.x;
-        let v23y = self.2.y - self.1.y;
-        v21x * v23y - v21y * v23x
-    }
-
-    fn is_right_handed(self) -> bool {
-        self.orientation() > 0.0
-    }
-
-    fn is_left_handed(self) -> bool {
-        self.orientation() < 0.0
-    }
-
-    fn in_circumcircle(self, point: Point) -> bool {
-        let dx = self.0.x - point.x;
-        let dy = self.0.y - point.y;
-        let ex = self.1.x - point.x;
-        let ey = self.1.y - point.y;
-        let fx = self.2.x - point.x;
-        let fy = self.2.y - point.y;
-
-        let ap = dx * dx + dy * dy;
-        let bp = ex * ex + ey * ey;
-        let cp = fx * fx + fy * fy;
-
-        dx * (ey * cp - bp * fy) - dy * (ex * cp - bp * fx) + ap * (ex * fy - ey * fx) < 0.0
-    }
-}
-
-/// Monotonically increases with the real angle, returns vales in range [0; 1]
-fn pseudo_angle(dx: f32, dy: f32) -> f32 {
-    let p = dx / (dx.abs() + dy.abs());
-
-    if dy > 0.0 {
-        (3.0 - p) / 4.0
-    } else {
-        (1.0 + p) / 4.0
-    }
-}
-
 /// Maps angle between `point` and `center` to index in the hash table
 fn angular_hash(point: Point, center: Point, size: usize) -> usize {
-    let angle = pseudo_angle(point.x - center.x, point.y - center.y);
+    let angle = geom::pseudo_angle(point.x - center.x, point.y - center.y);
     (angle * size as f32) as usize % size
 }
 

@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Bencher, Criterion};
 
-use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 use triangulation::{Delaunay, Point};
 
