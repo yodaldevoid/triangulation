@@ -1,7 +1,7 @@
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
-const STACK_CAPACITY: usize = 512;
+const STACK_CAPACITY: usize = 100;
 
 /// Option<usize>, where None is represented by -1
 ///
@@ -386,16 +386,14 @@ fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
             .unwrap()
     })?;
 
-    let (nearest_idx, nearest) = iter
+    let (nearest_idx, nearest, _) = iter
         .clone()
         .cloned()
         .enumerate()
         .filter(|&(i, _)| i != seed_idx)
-        .min_by(|(_, a), (_, b)| {
-            a.distance_sq(seed)
-                .partial_cmp(&b.distance_sq(seed))
-                .unwrap()
-        })?;
+        .map(|(i, p)| (i, p, p.distance_sq(seed)))
+        .filter(|(_, _, d)| d.abs() > std::f32::EPSILON)
+        .min_by(|(_, _, a), (_, _, b)| a.partial_cmp(&b).unwrap())?;
 
     let (third_idx, third) = iter
         .cloned()
@@ -573,7 +571,7 @@ impl Delaunay {
 
             let br = b0 + (b + 1) % 3;
 
-            if self.stack.len() >= STACK_CAPACITY {
+            if self.stack.len() >= STACK_CAPACITY - 1 {
                 continue;
             }
 
