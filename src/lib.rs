@@ -431,6 +431,11 @@ impl Delaunay {
                         break;
                     }
 
+                    if edge == hull.next[edge] {
+                        // wut
+                        break;
+                    }
+
                     edge = hull.next[edge];
 
                     if edge == hull.start {
