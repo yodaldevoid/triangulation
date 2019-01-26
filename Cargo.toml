@@ -15,6 +15,18 @@ exclude = [
     "wasm-demo/*"
 ]
 
+[[bench]]
+name = "uniform"
+harness = false
+
+[[bench]]
+name = "grid"
+harness = false
+
+[[bench]]
+name = "circle"
+harness = false
+
 [features]
 default = []
 parallel = ["rayon"]
@@ -27,6 +39,7 @@ optional = true
 rand = "0.6"
 image = "0.20.1"
 imageproc = "0.17.0"
+criterion = "0.2"
 
 [dev-dependencies.structopt]
 version = "0.2"
