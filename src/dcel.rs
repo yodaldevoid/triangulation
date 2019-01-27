@@ -8,6 +8,9 @@ pub struct TrianglesDCEL {
 
     /// Maps edge id to the opposite edge id in the adjacent triangle, if it exists
     pub halfedges: Vec<OptionIndex>,
+
+    // lazily initialized
+    points_to_triangles: Option<Vec<usize>>,
 }
 
 impl TrianglesDCEL {
@@ -18,6 +21,7 @@ impl TrianglesDCEL {
         TrianglesDCEL {
             vertices: Vec::with_capacity(3 * cap),
             halfedges: vec![OptionIndex::none(); 3 * cap],
+            points_to_triangles: None,
         }
     }
 
@@ -168,6 +172,134 @@ impl TrianglesDCEL {
             self.link(a, b);
         } else {
             self.unlink(a);
+        }
+    }
+
+    pub fn triangles_around_point<'a>(&'a self, p: usize) -> TrianglesAroundPoint<'a> {
+        let start = self
+            .points_to_triangles
+            .as_ref()
+            .expect("initialize point-to-triangle map calling init_revmap")[p];
+
+        TrianglesAroundPoint {
+            dcel: self,
+            start,
+            current: Some(start),
+            backward: false,
+        }
+    }
+
+    pub fn init_revmap(&mut self) {
+        if self.points_to_triangles.is_some() {
+            return;
+        }
+
+        let mut map = vec![0; self.vertices.len()];
+
+        for (t, &p) in self.vertices.iter().enumerate() {
+            map[p] = t;
+        }
+
+        self.points_to_triangles = Some(map);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TrianglesAroundPoint<'a> {
+    dcel: &'a TrianglesDCEL,
+    start: usize,
+    current: Option<usize>,
+    backward: bool,
+}
+
+impl<'a> Iterator for TrianglesAroundPoint<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        let result = self.current?;
+
+        if self.backward {
+            self.current = self.dcel.twin(self.dcel.prev_edge(result));
+
+            if self.current == Some(self.start) {
+                self.current = None;
+            }
+        } else {
+            println!("{:?}", self.current);
+            self.current = self.dcel.twin(result).map(|t| self.dcel.next_edge(t));
+
+            if self.current.is_none() {
+                println!("backward");
+                self.current = self.dcel.twin(self.dcel.prev_edge(self.start));
+                self.backward = true;
+            }
+
+            if self.current == Some(self.start) {
+                self.current = None;
+            }
+        }
+
+        Some(result)
+    }
+}
+
+impl<'a> std::iter::FusedIterator for TrianglesAroundPoint<'a> {}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+    use crate::Delaunay;
+
+    fn circular(count: usize) -> TrianglesDCEL {
+        let mut points = Vec::with_capacity(count + 1);
+
+        points.push(Point::new(100.0, 100.0));
+
+        for i in 0..count {
+            let angle = i as f32 / count as f32 * 2.0 * std::f32::consts::PI;
+            let (sin, cos) = angle.sin_cos();
+            points.push(Point::new(cos * 100.0 + 100.0, sin * 100.0 + 100.0));
+        }
+
+        let t = Delaunay::new(&points).unwrap();
+        t.dcel
+    }
+
+    #[test]
+    fn around_center() {
+        let count = 10;
+        let mut dcel = circular(count);
+        assert_eq!(dcel.num_triangles(), count);
+
+        dcel.init_revmap();
+
+        let around = dcel.triangles_around_point(0).collect::<Vec<_>>();
+
+        assert_eq!(around.len(), count);
+        assert_eq!(around.iter().collect::<HashSet<_>>().len(), count);  // no duplicates
+
+        for &p in &around {
+            assert_eq!(dcel.vertices[p], 0);
+        }
+    }
+
+    #[test]
+    fn around_hull_vertex() {
+        let count = 10;
+        let mut dcel = circular(count);
+        assert_eq!(dcel.num_triangles(), count);
+
+        dcel.init_revmap();
+
+        let around = dcel.triangles_around_point(1).collect::<Vec<_>>();
+
+        assert_eq!(around.len(), 2);
+        assert_eq!(around.iter().collect::<HashSet<_>>().len(), 2);  // no duplicates
+
+        for &p in &around {
+            assert_eq!(dcel.vertices[p], 1);
         }
     }
 }
