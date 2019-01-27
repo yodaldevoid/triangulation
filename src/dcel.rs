@@ -231,11 +231,9 @@ impl<'a> Iterator for TrianglesAroundPoint<'a> {
                 self.current = None;
             }
         } else {
-            println!("{:?}", self.current);
             self.current = self.dcel.twin(result).map(|t| self.dcel.next_edge(t));
 
             if self.current.is_none() {
-                println!("backward");
                 self.current = self.dcel.twin(self.dcel.prev_edge(self.start));
                 self.backward = true;
             }
