@@ -292,7 +292,7 @@ mod tests {
         let around = dcel.triangles_around_point(0).collect::<Vec<_>>();
 
         assert_eq!(around.len(), count);
-        assert_eq!(around.iter().collect::<HashSet<_>>().len(), count);  // no duplicates
+        assert_eq!(around.iter().collect::<HashSet<_>>().len(), count); // no duplicates
 
         for &p in &around {
             assert_eq!(dcel.vertices[p], 0);
@@ -310,7 +310,7 @@ mod tests {
         let around = dcel.triangles_around_point(1).collect::<Vec<_>>();
 
         assert_eq!(around.len(), 2);
-        assert_eq!(around.iter().collect::<HashSet<_>>().len(), 2);  // no duplicates
+        assert_eq!(around.iter().collect::<HashSet<_>>().len(), 2); // no duplicates
 
         for &p in &around {
             assert_eq!(dcel.vertices[p], 1);

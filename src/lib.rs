@@ -4,9 +4,8 @@ use rayon::prelude::*;
 pub mod dcel;
 pub mod geom;
 
+pub use dcel::TrianglesDCEL;
 pub use geom::{Point, Triangle};
-
-use dcel::TrianglesDCEL;
 
 const STACK_CAPACITY: usize = 512;
 
