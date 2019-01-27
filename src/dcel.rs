@@ -175,6 +175,10 @@ impl TrianglesDCEL {
         }
     }
 
+    /// Returns the iterator of triangles around the given point.
+    ///
+    /// [`init_revmap`](TrianglesDCEL::init_revmap) must be called beforehand
+    /// to initialize the point-to-triangle map.
     pub fn triangles_around_point<'a>(&'a self, p: usize) -> TrianglesAroundPoint<'a> {
         let start = self
             .points_to_triangles
@@ -189,6 +193,7 @@ impl TrianglesDCEL {
         }
     }
 
+    /// Initializes the point-to-triangle map.
     pub fn init_revmap(&mut self) {
         if self.points_to_triangles.is_some() {
             return;
@@ -204,6 +209,7 @@ impl TrianglesDCEL {
     }
 }
 
+/// Iterator of triangles around a certain point in DCEL
 #[derive(Debug, Clone)]
 pub struct TrianglesAroundPoint<'a> {
     dcel: &'a TrianglesDCEL,
