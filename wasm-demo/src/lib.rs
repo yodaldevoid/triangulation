@@ -15,5 +15,5 @@ pub fn triangulate(p: &[f32]) -> Vec<u32> {
     }
 
     let t = Delaunay::new(&points).unwrap();
-    t.triangles.iter().map(|&v| v as u32).collect()
+    t.dcel.vertices.iter().map(|&v| v as u32).collect()
 }
