@@ -46,7 +46,7 @@ fn main() {
     let triangulation = Delaunay::new(&points).unwrap();
     println!(
         "Created {} triangles in {:?}",
-        triangulation.triangles.len(),
+        triangulation.dcel.num_triangles(),
         t.elapsed()
     );
 
@@ -75,14 +75,10 @@ fn main() {
         );
     };
 
-    for i in (0..triangulation.triangles.len()).step_by(3) {
-        let a = points[triangulation.triangles[i]];
-        let b = points[triangulation.triangles[i + 1]];
-        let c = points[triangulation.triangles[i + 2]];
-
-        draw_line(im, a, b);
-        draw_line(im, b, c);
-        draw_line(im, c, a);
+    for t in triangulation.dcel.triangles(&points) {
+        draw_line(im, t.0, t.1);
+        draw_line(im, t.1, t.2);
+        draw_line(im, t.2, t.0);
     }
 
     println!("Drawing took {:?}", t.elapsed());

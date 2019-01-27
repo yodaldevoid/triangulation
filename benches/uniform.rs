@@ -3,7 +3,7 @@ use criterion::{criterion_group, criterion_main, Bencher, Criterion};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use triangulation::{Delaunay, Point};
+use triangulation::{Point, Delaunay};
 
 fn bench_uniform(count: usize) -> Delaunay {
     let mut rng = StdRng::seed_from_u64(1337);

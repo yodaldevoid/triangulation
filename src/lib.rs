@@ -6,7 +6,9 @@ pub mod geom;
 
 pub use geom::{Point, Triangle};
 
-const STACK_CAPACITY: usize = 100;
+use dcel::TrianglesDCEL;
+
+const STACK_CAPACITY: usize = 512;
 
 /// Option<usize>, where None is represented by -1
 ///
@@ -159,85 +161,6 @@ impl Hull {
 
         Some((edge, edge == start))
     }
-
-    fn add_point(&mut self, index: usize, triangulation: &mut Delaunay, points: &[Point]) {
-        let point = points[index];
-
-        let (mut start, should_walk_back) = match self.find_visible_edge(point, points) {
-            Some(v) => v,
-            None => return,
-        };
-
-        let mut end = self.next[start];
-
-        let t = triangulation.add_triangle(
-            [start, index, end],
-            [
-                OptionIndex::none(),
-                OptionIndex::none(),
-                self.triangles[start],
-            ],
-        );
-
-        self.triangles[index] = OptionIndex::some(triangulation.legalize(t + 2, points, self));
-        self.triangles[start] = OptionIndex::some(t);
-
-        loop {
-            let next = self.next[end];
-            let tri = Triangle(point, points[next], points[end]);
-            if !tri.is_right_handed() {
-                break;
-            }
-
-            let t = triangulation.add_triangle(
-                [end, index, next],
-                [
-                    self.triangles[index],
-                    OptionIndex::none(),
-                    self.triangles[end],
-                ],
-            );
-
-            self.triangles[index] = OptionIndex::some(triangulation.legalize(t + 2, points, self));
-            self.next[end] = end;
-            end = next;
-        }
-
-        if should_walk_back {
-            loop {
-                let prev = self.prev[start];
-                let tri = Triangle(point, points[start], points[prev]);
-                if !tri.is_right_handed() {
-                    break;
-                }
-
-                let t = triangulation.add_triangle(
-                    [prev, index, start],
-                    [
-                        OptionIndex::none(),
-                        self.triangles[start],
-                        self.triangles[prev],
-                    ],
-                );
-
-                triangulation.legalize(t + 2, points, self);
-
-                self.triangles[prev] = OptionIndex::some(t);
-                self.next[start] = start;
-                start = prev;
-            }
-        }
-
-        self.start = start;
-        self.next[start] = index;
-        self.next[index] = end;
-
-        self.prev[end] = index;
-        self.prev[index] = start;
-
-        self.add_hash(index, point);
-        self.add_hash(start, points[start]);
-    }
 }
 
 /// Calculates the median point (arithmetic mean of the coordinates)
@@ -296,22 +219,15 @@ fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
     }
 }
 
-/// Delaunay triangulation represented by DCEL (doubly connected edge list)
+/// Delaunay triangulation
 pub struct Delaunay {
-    /// Maps edge id to start point id
-    pub triangles: Vec<usize>,
-
-    /// Maps edge id to the opposite edge id in the adjacent triangle, if it exists
-    pub halfedges: Vec<OptionIndex>,
-
+    pub dcel: TrianglesDCEL,
+    hull: Hull,
     stack: Vec<usize>,
 }
 
 impl Delaunay {
-    /// Creates delaunay triangulation of given points, if it exists
-    ///
-    /// Delaunay triangulation does not exist if and only if all points lie on the same line
-    /// or there are less than three points.
+    /// Triangulates a set of given points, if it is possible.
     pub fn new(points: &[Point]) -> Option<Delaunay> {
         let (seed, seed_indices) = find_seed_triangle(points)?;
         let seed_circumcenter = seed.circumcenter();
@@ -333,12 +249,15 @@ impl Delaunay {
         #[cfg(not(feature = "rayon"))]
         indices.sort_by(cmp);
 
-        let mut hull = Hull::new(seed_indices, points);
-
         let max_triangles = 2 * points.len() - 3 - 2;
-        let mut triangulation = Delaunay::with_capacity(max_triangles);
 
-        triangulation.add_triangle(seed_indices, [OptionIndex::none(); 3]);
+        let mut delaunay = Delaunay {
+            dcel: TrianglesDCEL::with_capacity(max_triangles),
+            hull: Hull::new(seed_indices, points),
+            stack: Vec::with_capacity(STACK_CAPACITY),
+        };
+
+        delaunay.dcel.add_triangle(seed_indices);
 
         let mut prev_point: Option<Point> = None;
 
@@ -351,61 +270,139 @@ impl Delaunay {
                 }
             }
 
-            hull.add_point(i, &mut triangulation, points);
+            delaunay.add_point(i, points);
             prev_point = Some(point);
         }
 
-        triangulation.stack.shrink_to_fit();
-        Some(triangulation)
+        Some(delaunay)
     }
 
-    fn with_capacity(cap: usize) -> Delaunay {
-        Delaunay {
-            triangles: Vec::with_capacity(cap * 3),
-            halfedges: vec![OptionIndex::none(); cap * 3],
-            stack: Vec::with_capacity(STACK_CAPACITY),
+    fn add_point(&mut self, index: usize, points: &[Point]) {
+        let point = points[index];
+
+        let (mut start, should_walk_back) = match self.hull.find_visible_edge(point, points) {
+            Some(v) => v,
+            None => return,
+        };
+
+        let mut end = self.hull.next[start];
+
+        let t = self.add_triangle(
+            [start, index, end],
+            [
+                OptionIndex::none(),
+                OptionIndex::none(),
+                self.hull.triangles[start],
+            ],
+        );
+
+        self.hull.triangles[index] = OptionIndex::some(self.legalize(t + 2, points));
+        self.hull.triangles[start] = OptionIndex::some(t);
+
+        loop {
+            let next = self.hull.next[end];
+            let tri = Triangle(point, points[next], points[end]);
+            if !tri.is_right_handed() {
+                break;
+            }
+
+            let t = self.add_triangle(
+                [end, index, next],
+                [
+                    self.hull.triangles[index],
+                    OptionIndex::none(),
+                    self.hull.triangles[end],
+                ],
+            );
+
+            self.hull.triangles[index] = OptionIndex::some(self.legalize(t + 2, points));
+            self.hull.next[end] = end;
+            end = next;
         }
+
+        if should_walk_back {
+            loop {
+                let prev = self.hull.prev[start];
+                let tri = Triangle(point, points[start], points[prev]);
+                if !tri.is_right_handed() {
+                    break;
+                }
+
+                let t = self.add_triangle(
+                    [prev, index, start],
+                    [
+                        OptionIndex::none(),
+                        self.hull.triangles[start],
+                        self.hull.triangles[prev],
+                    ],
+                );
+
+                self.legalize(t + 2, points);
+
+                self.hull.triangles[prev] = OptionIndex::some(t);
+                self.hull.next[start] = start;
+                start = prev;
+            }
+        }
+
+        self.hull.start = start;
+        self.hull.next[start] = index;
+        self.hull.next[index] = end;
+
+        self.hull.prev[end] = index;
+        self.hull.prev[index] = start;
+
+        self.hull.add_hash(index, point);
+        self.hull.add_hash(start, points[start]);
     }
 
     fn add_triangle(&mut self, vertices: [usize; 3], halfedges: [OptionIndex; 3]) -> usize {
-        let t = self.triangles.len();
-
-        self.triangles.push(vertices[0]);
-        self.triangles.push(vertices[1]);
-        self.triangles.push(vertices[2]);
+        let t = self.dcel.add_triangle(vertices);
 
         for (i, &halfedge) in halfedges.iter().enumerate() {
             if let Some(e) = halfedge.get() {
-                self.halfedges[t + i] = OptionIndex::some(e);
-                self.halfedges[e] = OptionIndex::some(t + i);
+                self.dcel.link(t + i, e);
             }
         }
 
         t
     }
 
-    fn legalize(&mut self, index: usize, points: &[Point], hull: &mut Hull) -> usize {
+    fn legalize(&mut self, index: usize, points: &[Point]) -> usize {
         self.stack.push(index);
 
-        let mut ar = 0;
+        let mut output = 0;
 
         while let Some(a) = self.stack.pop() {
-            let a0 = a - a % 3;
-            ar = a0 + (a + 2) % 3;
+            let ar = self.dcel.prev_edge(a);
+            output = ar;
 
-            let b = match self.halfedges[a].get() {
+            let b = match self.dcel.twin(a) {
                 Some(v) => v,
                 None => continue,
             };
 
-            let b0 = b - b % 3;
-            let al = a0 + (a + 1) % 3;
-            let bl = b0 + (b + 2) % 3;
+            let br = self.dcel.next_edge(b);
+            let bl = self.dcel.prev_edge(b);
 
-            let p0 = self.triangles[ar];
-            let pr = self.triangles[a];
-            let pl = self.triangles[al];
-            let p1 = self.triangles[bl];
+            /* if the pair of triangles doesn't satisfy the Delaunay condition
+             * (p1 is inside the circumcircle of [p0, pl, pr]), flip them,
+             * then do the same check/flip recursively for the new pair of triangles
+             *
+             *           pl                    pl
+             *          /||\                  /  \
+             *       al/ || \bl            al/    \a
+             *        /  ||  \              /      \
+             *       /  a||b  \    flip    /___ar___\
+             *     p0\   ||   /p1   =>   p0\---bl---/p1
+             *        \  ||  /              \      /
+             *       ar\ || /br             b\    /br
+             *          \||/                  \  /
+             *           pr                    pr
+             */
+
+            let [p0, pr, pl] = self.dcel.triangle_points(ar);
+            let p1 = self.dcel.triangle_points(bl)[0];
 
             let illegal = Triangle(points[p0], points[pr], points[pl]).in_circumcircle(points[p1]);
 
@@ -413,46 +410,31 @@ impl Delaunay {
                 continue;
             }
 
-            self.triangles[a] = p1;
-            self.triangles[b] = p0;
+            self.dcel.vertices[a] = p1;
+            self.dcel.vertices[b] = p0;
 
-            let hbl = self.halfedges[bl];
+            let hbl = self.dcel.twin(bl);
 
-            self.halfedges[a] = hbl;
+            self.dcel.link_option(a, hbl);
+            self.dcel.link_option(b, self.dcel.twin(ar));
+            self.dcel.link(ar, bl);
 
-            if let Some(e) = hbl.get() {
-                self.halfedges[e] = OptionIndex::some(a);
-            } else {
-                let mut edge = hull.start;
+            if hbl.is_none() {
+                let mut edge = self.hull.start;
 
                 loop {
-                    if hull.triangles[edge] == OptionIndex::some(bl) {
-                        hull.triangles[edge] = OptionIndex::some(a);
+                    if self.hull.triangles[edge] == OptionIndex::some(bl) {
+                        self.hull.triangles[edge] = OptionIndex::some(a);
                         break;
                     }
 
-                    if edge == hull.next[edge] {
-                        // wut
-                        break;
-                    }
+                    edge = self.hull.next[edge];
 
-                    edge = hull.next[edge];
-
-                    if edge == hull.start {
+                    if edge == self.hull.start || edge == self.hull.next[edge] {
                         break;
                     }
                 }
             }
-
-            self.halfedges[b] = self.halfedges[ar];
-            if let Some(e) = self.halfedges[ar].get() {
-                self.halfedges[e] = OptionIndex::some(b);
-            }
-
-            self.halfedges[ar] = OptionIndex::some(bl);
-            self.halfedges[bl] = OptionIndex::some(ar);
-
-            let br = b0 + (b + 1) % 3;
 
             if self.stack.len() >= STACK_CAPACITY - 1 {
                 continue;
@@ -462,6 +444,6 @@ impl Delaunay {
             self.stack.push(a);
         }
 
-        ar
+        output
     }
 }

@@ -3,19 +3,37 @@ use crate::{OptionIndex, Point, Triangle};
 /// Doubly connected edge list (a.k.a. half-edge data structure) of triangles
 #[derive(Debug, Clone)]
 pub struct TrianglesDCEL {
-    vertices: Vec<usize>,
-    halfedges: Vec<OptionIndex>,
+    /// Maps edge id to start point id
+    pub vertices: Vec<usize>,
+
+    /// Maps edge id to the opposite edge id in the adjacent triangle, if it exists
+    pub halfedges: Vec<OptionIndex>,
 }
 
 impl TrianglesDCEL {
     /// Constructs a new DCEL with specified capacity.
     ///
-    /// The DCEL will be able to hold at most `cap` edges.
+    /// The DCEL will be able to hold at most `cap` triangles.
     pub fn with_capacity(cap: usize) -> TrianglesDCEL {
         TrianglesDCEL {
-            vertices: Vec::with_capacity(cap),
-            halfedges: vec![OptionIndex::none(); cap],
+            vertices: Vec::with_capacity(3 * cap),
+            halfedges: vec![OptionIndex::none(); 3 * cap],
         }
+    }
+
+    /// Returns the number of triangles in the triangulation
+    pub fn num_triangles(&self) -> usize {
+        self.vertices.len() / 3
+    }
+
+    /// Returns the iterator over all triangles in the triangulation
+    pub fn triangles<'a, 'b: 'a>(
+        &'a self,
+        points: &'b [Point],
+    ) -> impl Iterator<Item = Triangle> + 'a {
+        (0..self.vertices.len())
+            .step_by(3)
+            .map(move |t| self.triangle(t, points))
     }
 
     /// Adds a new triangle from given point ids to the DCEL and returns its `id`.
@@ -136,5 +154,20 @@ impl TrianglesDCEL {
     pub fn link(&mut self, a: usize, b: usize) {
         self.halfedges[a] = OptionIndex::some(b);
         self.halfedges[b] = OptionIndex::some(a);
+    }
+
+    /// Removes twin of the given edge.
+    pub fn unlink(&mut self, a: usize) {
+        self.halfedges[a] = OptionIndex::none();
+    }
+
+    /// If `b` is `Some` works like [`link`](TrianglesDCEL::link),
+    /// otherwise removes the twin of `a`.
+    pub fn link_option(&mut self, a: usize, b: Option<usize>) {
+        if let Some(b) = b {
+            self.link(a, b);
+        } else {
+            self.unlink(a);
+        }
     }
 }
