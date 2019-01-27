@@ -20,6 +20,7 @@ impl Point {
     /// let b = Point::new(10.0, 110.0);
     /// assert!((a.distance_sq(b) - 10000.0) < 1e-6);
     /// ```
+    #[inline]
     pub fn distance_sq(self, other: Point) -> f32 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
@@ -36,6 +37,7 @@ impl Point {
     /// let b = Point::new(10.0, 10.0000001);
     /// assert!(a.approx_eq(b))
     /// ```
+    #[inline]
     pub fn approx_eq(self, other: Point) -> bool {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
@@ -60,6 +62,7 @@ impl Into<(f32, f32)> for Point {
 pub struct Triangle(pub Point, pub Point, pub Point);
 
 impl Triangle {
+    #[inline]
     fn circumcircle_delta(self) -> (f32, f32) {
         let p = Point {
             x: self.1.x - self.0.x,
@@ -97,6 +100,7 @@ impl Triangle {
     /// );
     /// assert!((t.circumradius_sq() - 5000.0) < 1e-6);
     /// ```
+    #[inline]
     pub fn circumradius_sq(self) -> f32 {
         let (x, y) = self.circumcircle_delta();
         x * x + y * y
@@ -114,6 +118,7 @@ impl Triangle {
     /// );
     /// assert!(t.circumcenter().approx_eq(Point::new(60.0, 60.0)));
     /// ```
+    #[inline]
     pub fn circumcenter(self) -> Point {
         let (x, y) = self.circumcircle_delta();
 
@@ -136,6 +141,7 @@ impl Triangle {
     /// );
     /// assert!(t.orientation() > 0.0);
     /// ```
+    #[inline]
     pub fn orientation(self) -> f32 {
         let v21x = self.0.x - self.1.x;
         let v21y = self.0.y - self.1.y;
@@ -145,11 +151,13 @@ impl Triangle {
     }
 
     /// Returns true if the triangle is right-handed (conter-clockwise order).
+    #[inline]
     pub fn is_right_handed(self) -> bool {
         self.orientation() > 0.0
     }
 
     /// Returns true if the triangle is left-handed (clockwise order).
+    #[inline]
     pub fn is_left_handed(self) -> bool {
         self.orientation() < 0.0
     }
@@ -168,6 +176,7 @@ impl Triangle {
     /// assert!(t.in_circumcircle(Point::new(30.0, 30.0)));
     /// assert!(!t.in_circumcircle(Point::new(5.0, 5.0)));
     /// ```
+    #[inline]
     pub fn in_circumcircle(self, point: Point) -> bool {
         let dx = self.0.x - point.x;
         let dy = self.0.y - point.y;

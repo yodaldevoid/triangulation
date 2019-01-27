@@ -18,27 +18,32 @@ pub struct OptionIndex(usize);
 
 impl OptionIndex {
     /// Returns `Some(idx)` value
+    #[inline]
     pub fn some(idx: usize) -> OptionIndex {
         debug_assert!(idx < std::usize::MAX);
         OptionIndex(idx)
     }
 
     /// Returns None value
+    #[inline]
     pub fn none() -> OptionIndex {
         OptionIndex(std::usize::MAX)
     }
 
     /// Returns true if it is a `Some` value
+    #[inline]
     pub fn is_some(self) -> bool {
         self != OptionIndex::none()
     }
 
     /// Returns true if it is a `None` value
+    #[inline]
     pub fn is_none(self) -> bool {
         self == OptionIndex::none()
     }
 
     /// Returns the associated `Option` value
+    #[inline]
     pub fn get(self) -> Option<usize> {
         if self.is_some() {
             Some(self.0)

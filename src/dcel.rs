@@ -45,6 +45,7 @@ impl TrianglesDCEL {
     /// viewed from different points.
     ///
     /// Make sure points is ordered in counter-clockwise order.
+    #[inline]
     pub fn add_triangle(&mut self, points: [usize; 3]) -> usize {
         let t = self.vertices.len();
         self.vertices.extend_from_slice(&points);
@@ -62,6 +63,7 @@ impl TrianglesDCEL {
     /// assert_eq!(dcel.triangle_points(t + 1), [1, 2, 0]);
     /// assert_eq!(dcel.triangle_points(t + 2), [2, 0, 1]);
     /// ```
+    #[inline]
     pub fn triangle_points(&self, t: usize) -> [usize; 3] {
         let a = t;
         let b = self.next_edge(a);
@@ -81,6 +83,7 @@ impl TrianglesDCEL {
     /// let t = dcel.add_triangle([0, 1, 2]);
     /// assert_eq!(dcel.triangle(t, points), Triangle(points[0], points[1], points[2]));
     /// ```
+    #[inline]
     pub fn triangle(&self, t: usize, points: &[Point]) -> Triangle {
         let [a, b, c] = self.triangle_points(t);
         Triangle(points[a], points[b], points[c])
@@ -98,6 +101,7 @@ impl TrianglesDCEL {
     /// assert_eq!(dcel.triangle_first_edge(t + 1), t);
     /// assert_eq!(dcel.triangle_first_edge(t + 2), t);
     /// ```
+    #[inline]
     pub fn triangle_first_edge(&self, t: usize) -> usize {
         t - t % 3
     }
@@ -112,6 +116,7 @@ impl TrianglesDCEL {
     /// assert_eq!(dcel.next_edge(1), 2);
     /// assert_eq!(dcel.next_edge(2), 0);
     /// ```
+    #[inline]
     pub fn next_edge(&self, edge: usize) -> usize {
         if edge % 3 == 2 {
             edge - 2
@@ -130,6 +135,7 @@ impl TrianglesDCEL {
     /// assert_eq!(dcel.prev_edge(1), 0);
     /// assert_eq!(dcel.prev_edge(2), 1);
     /// ```
+    #[inline]
     pub fn prev_edge(&self, edge: usize) -> usize {
         if edge % 3 == 0 {
             edge + 2
@@ -139,6 +145,7 @@ impl TrianglesDCEL {
     }
 
     /// Returns the twin edge id, if it exists.
+    #[inline]
     pub fn twin(&self, edge: usize) -> Option<usize> {
         self.halfedges[edge].get()
     }
@@ -155,18 +162,21 @@ impl TrianglesDCEL {
     /// assert_eq!(dcel.twin(a + 1), Some(b));
     /// assert_eq!(dcel.twin(b), Some(a + 1));
     /// ```
+    #[inline]
     pub fn link(&mut self, a: usize, b: usize) {
         self.halfedges[a] = OptionIndex::some(b);
         self.halfedges[b] = OptionIndex::some(a);
     }
 
     /// Removes twin of the given edge.
+    #[inline]
     pub fn unlink(&mut self, a: usize) {
         self.halfedges[a] = OptionIndex::none();
     }
 
     /// If `b` is `Some` works like [`link`](TrianglesDCEL::link),
     /// otherwise removes the twin of `a`.
+    #[inline]
     pub fn link_option(&mut self, a: usize, b: Option<usize>) {
         if let Some(b) = b {
             self.link(a, b);
