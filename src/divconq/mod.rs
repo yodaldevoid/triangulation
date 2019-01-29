@@ -30,11 +30,22 @@ impl Half {
     }
 
     fn new_single_edge(offset: usize, side: Side, points: &[Point]) -> Half {
-        let bottom_most = if points[offset + 1].y > points[offset].y {
-            1
-        } else {
-            0
-        };
+        let bottom_most = (0..2)
+            .min_by(|a, b| {
+                let a = points[a + offset];
+                let b = points[b + offset];
+
+                if side == Side::Left {
+                    b.y.partial_cmp(&a.y)
+                        .unwrap()
+                        .then(b.x.partial_cmp(&a.x).unwrap())
+                } else {
+                    b.y.partial_cmp(&a.y)
+                        .unwrap()
+                        .then(a.x.partial_cmp(&b.x).unwrap())
+                }
+            })
+            .unwrap();
 
         Half {
             triangles: vec![1, 0],
@@ -170,6 +181,20 @@ mod tests {
 
         let r = Half::new(0..3, Side::Right, &points);
         assert!(points[2].approx_eq(r.point(r.bottom_most, &points)));
+    }
+
+    #[test]
+    fn bottom_most_couple() {
+        let points = vec![
+            Point::new(50.0, 50.0),
+            Point::new(100.0, 50.0),
+        ];
+
+        let l = Half::new(0..2, Side::Left, &points);
+        assert!(points[0].approx_eq(l.point(l.bottom_most, &points)));
+
+        let r = Half::new(0..2, Side::Right, &points);
+        assert!(points[1].approx_eq(r.point(r.bottom_most, &points)));
     }
 
     #[test]
