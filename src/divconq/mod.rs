@@ -147,7 +147,6 @@ impl Half {
                 break;
             }
 
-
             end = next;
         }
 
@@ -158,11 +157,50 @@ impl Half {
         }
     }
 
+    fn candidates(&self, side: Side, edge: usize) -> Candidates<'_> {
+        Candidates {
+            half: self,
+            current: Some(edge),
+            side,
+        }
+    }
+
     pub fn merge(mut self, other: Half, points: &[Point]) -> Half {
         let base = self.find_base_lr(&other, points);
         self
     }
 }
+
+struct Candidates<'a> {
+    half: &'a Half,
+    current: Option<usize>,
+    side: Side,
+}
+
+impl<'a> Iterator for Candidates<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        let current = self.current?;
+
+        if self.side == Side::Left {
+            let candidate = self.half.prev_edge(current);
+
+            self.current = self.half.halfedges[current]
+                .get()
+                .map(|v| self.half.next_edge(v));
+
+            Some(candidate)
+        } else {
+            let candidate = self.half.next_edge(current);
+            self.current = self.half.halfedges[self.half.prev_edge(current)].get();
+
+            Some(candidate)
+        }
+    }
+}
+
+impl<'a> std::iter::FusedIterator for Candidates<'a> {}
 
 #[cfg(test)]
 mod tests {
@@ -185,10 +223,7 @@ mod tests {
 
     #[test]
     fn bottom_most_couple() {
-        let points = vec![
-            Point::new(50.0, 50.0),
-            Point::new(100.0, 50.0),
-        ];
+        let points = vec![Point::new(50.0, 50.0), Point::new(100.0, 50.0)];
 
         let l = Half::new(0..2, Side::Left, &points);
         assert!(points[0].approx_eq(l.point(l.bottom_most, &points)));
@@ -237,5 +272,39 @@ mod tests {
 
         assert!(p0.approx_eq(points[0]));
         assert!(p1.approx_eq(points[3]));
+    }
+
+    #[test]
+    fn candidates() {
+        let _points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(60.0, 0.0),
+            Point::new(30.0, 30.0),
+            Point::new(60.0, 60.0),
+            Point::new(60.0, 90.0),
+        ];
+
+        let s = |v| OptionIndex::some(v);
+        let n = OptionIndex::none();
+
+        let mut half = Half {
+            triangles: vec![0, 2, 1, 1, 2, 3, 3, 2, 4, 0, 4, 2],
+            halfedges: vec![s(11), s(3), n, s(1), s(6), n, s(4), s(10), n, n, s(7), s(0)],
+            offset: 0,
+            bottom_most: 10,
+        };
+
+        let mut candidates = half.candidates(Side::Left, 10);
+        assert_eq!(candidates.next(), Some(9));
+        assert_eq!(candidates.next(), Some(7));
+        assert_eq!(candidates.next(), None);
+
+        half.bottom_most = 8;
+
+        let mut candidates = half.candidates(Side::Right, 8);
+        assert_eq!(candidates.next(), Some(6));
+        assert_eq!(candidates.next(), Some(11));
+        assert_eq!(candidates.next(), None)
+
     }
 }
