@@ -162,6 +162,88 @@ impl Half {
             half: self,
             current: Some(edge),
             side,
+            last: false,
+        }
+    }
+
+    fn triangle_first_edge(&self, t: usize) -> usize {
+        t - t % 3
+    }
+
+    fn delete_triangle(&mut self, side: Side, t: usize, base: &mut usize) -> bool {
+        let t = self.triangle_first_edge(t);
+        let base_t = self.triangle_first_edge(*base);
+
+        let mut base_valid = true;
+
+        if base_t == t {
+            let next = if side == Side::Right {
+                self.halfedges[*base].get().map(|v| self.next_edge(v))
+            } else {
+                self.halfedges[self.prev_edge(*base)].get()
+            };
+
+            if let Some(next) = next {
+                *base = next;
+
+                if self.bottom_most == base_t {
+                    self.bottom_most = next;
+                }
+            } else {
+                base_valid = false;
+            }
+        }
+
+        for i in 0..3 {
+            self.triangles[t + i] = 0;
+
+            if let Some(h) = self.halfedges[t + i].get() {
+                self.halfedges[t + i] = OptionIndex::none();
+                self.halfedges[h] = OptionIndex::none();
+            }
+        }
+
+        base_valid
+    }
+
+    fn select_candidate(
+        &mut self,
+        side: Side,
+        mut base: usize,
+        end: Point,
+        points: &[Point],
+    ) -> Option<usize> {
+        let base_pt = self.point(base, points);
+
+        loop {
+            let mut candidates = self.candidates(side, base);
+            let curr = candidates.next()?;
+            let next = candidates.next();
+
+            let mut tri = Triangle(self.point(curr, points), base_pt, end);
+
+            if side == Side::Left && tri.is_left_handed()
+                || side == Side::Right && tri.is_right_handed()
+            {
+                // do you love me?
+                return None;
+            }
+
+            if !tri.is_right_handed() {
+                std::mem::swap(&mut tri.1, &mut tri.2);
+            }
+
+            if let Some(next) = next {
+                if tri.in_circumcircle(self.point(next, points)) {
+                    if !self.delete_triangle(side, curr, &mut base) {
+                        return Some(next);
+                    }
+
+                    continue;
+                }
+            }
+
+            return Some(curr);
         }
     }
 
@@ -175,25 +257,42 @@ struct Candidates<'a> {
     half: &'a Half,
     current: Option<usize>,
     side: Side,
+    last: bool,
 }
 
 impl<'a> Iterator for Candidates<'a> {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {
+        if self.last {
+            let current = self.current;
+            self.current = None;
+            return current;
+        }
+
         let current = self.current?;
 
-        if self.side == Side::Left {
+        if self.side == Side::Right {
             let candidate = self.half.prev_edge(current);
 
             self.current = self.half.halfedges[current]
                 .get()
                 .map(|v| self.half.next_edge(v));
 
+            if self.current.is_none() {
+                self.current = Some(self.half.next_edge(current));
+                self.last = true;
+            }
+
             Some(candidate)
         } else {
             let candidate = self.half.next_edge(current);
             self.current = self.half.halfedges[self.half.prev_edge(current)].get();
+
+            if self.current.is_none() {
+                self.current = Some(self.half.prev_edge(current));
+                self.last = true;
+            }
 
             Some(candidate)
         }
@@ -287,6 +386,39 @@ mod tests {
         let s = |v| OptionIndex::some(v);
         let n = OptionIndex::none();
 
+        let half = Half {
+            triangles: vec![0, 2, 1, 1, 2, 3, 3, 2, 4, 0, 4, 2],
+            halfedges: vec![s(11), s(3), n, s(1), s(6), n, s(4), s(10), n, n, s(7), s(0)],
+            offset: 0,
+            bottom_most: 10,
+        };
+
+        let mut candidates = half.candidates(Side::Right, 10);
+        assert_eq!(candidates.next(), Some(9));
+        assert_eq!(candidates.next(), Some(7));
+        assert_eq!(candidates.next(), Some(6));
+        assert_eq!(candidates.next(), None);
+
+        let mut candidates = half.candidates(Side::Left, 8);
+        assert_eq!(candidates.next(), Some(6));
+        assert_eq!(candidates.next(), Some(11));
+        assert_eq!(candidates.next(), Some(9));
+        assert_eq!(candidates.next(), None)
+    }
+
+    #[test]
+    fn valid_candidate() {
+        let s = |v| OptionIndex::some(v);
+        let n = OptionIndex::none();
+
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(60.0, 0.0),
+            Point::new(30.0, 30.0),
+            Point::new(60.0, 60.0),
+            Point::new(60.0, 90.0),
+        ];
+
         let mut half = Half {
             triangles: vec![0, 2, 1, 1, 2, 3, 3, 2, 4, 0, 4, 2],
             halfedges: vec![s(11), s(3), n, s(1), s(6), n, s(4), s(10), n, n, s(7), s(0)],
@@ -294,17 +426,7 @@ mod tests {
             bottom_most: 10,
         };
 
-        let mut candidates = half.candidates(Side::Left, 10);
-        assert_eq!(candidates.next(), Some(9));
-        assert_eq!(candidates.next(), Some(7));
-        assert_eq!(candidates.next(), None);
-
-        half.bottom_most = 8;
-
-        let mut candidates = half.candidates(Side::Right, 8);
-        assert_eq!(candidates.next(), Some(6));
-        assert_eq!(candidates.next(), Some(11));
-        assert_eq!(candidates.next(), None)
-
+        let c = half.select_candidate(Side::Right, 10, Point::new(-30.0, 90.0), &points);
+        assert!(half.point(c.unwrap(), &points).approx_eq(Point::new(30.0, 30.0)));
     }
 }
