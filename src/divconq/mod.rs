@@ -3,6 +3,7 @@ use std::ops::Range;
 use crate::geom::{Point, Triangle};
 use crate::OptionIndex;
 
+#[derive(Clone, Debug)]
 struct Half {
     triangles: Vec<usize>,
     halfedges: Vec<OptionIndex>,
@@ -174,8 +175,6 @@ impl Half {
         let t = self.triangle_first_edge(t);
         let base_t = self.triangle_first_edge(*base);
 
-        let mut base_valid = true;
-
         if base_t == t {
             let next = if side == Side::Right {
                 self.halfedges[*base].get().map(|v| self.next_edge(v))
@@ -190,7 +189,7 @@ impl Half {
                     self.bottom_most = next;
                 }
             } else {
-                base_valid = false;
+                return false;
             }
         }
 
@@ -203,7 +202,7 @@ impl Half {
             }
         }
 
-        base_valid
+        true
     }
 
     fn select_candidate(
@@ -419,14 +418,25 @@ mod tests {
             Point::new(60.0, 90.0),
         ];
 
-        let mut half = Half {
+        let half = Half {
             triangles: vec![0, 2, 1, 1, 2, 3, 3, 2, 4, 0, 4, 2],
             halfedges: vec![s(11), s(3), n, s(1), s(6), n, s(4), s(10), n, n, s(7), s(0)],
             offset: 0,
             bottom_most: 10,
         };
 
-        let c = half.select_candidate(Side::Right, 10, Point::new(-30.0, 90.0), &points);
-        assert!(half.point(c.unwrap(), &points).approx_eq(Point::new(30.0, 30.0)));
+        {
+            let mut half = half.clone();
+            let c = half.select_candidate(Side::Right, 10, Point::new(-30.0, 90.0), &points);
+            let point = half.point(c.unwrap(), &points);
+            assert!(point.approx_eq(Point::new(30.0, 30.0)));
+        }
+
+        {
+            let mut half = half.clone();
+            let c = half.select_candidate(Side::Right, 10, Point::new(0.0, 90.0), &points);
+            let point = half.point(c.unwrap(), &points);
+            assert!(point.approx_eq(Point::new(60.0, 60.0)));
+        }
     }
 }
