@@ -14,7 +14,7 @@ const STACK_CAPACITY: usize = 512;
 /// Option<usize>, where None is represented by -1
 ///
 /// Takes 8 bytes instead of 16.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OptionIndex(usize);
 
 impl OptionIndex {
@@ -51,6 +51,12 @@ impl OptionIndex {
         } else {
             None
         }
+    }
+}
+
+impl std::fmt::Debug for OptionIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.get().fmt(f)
     }
 }
 
