@@ -4,8 +4,6 @@ use rayon::prelude::*;
 pub mod dcel;
 pub mod geom;
 
-pub mod divconq;
-
 pub use dcel::TrianglesDCEL;
 pub use geom::{Point, Triangle};
 
