@@ -1,58 +1,73 @@
+use core::marker::PhantomData;
+
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
 pub mod dcel;
 pub mod geom;
 
-pub use dcel::TrianglesDCEL;
+pub use dcel::{EdgeIndex, PointIndex, TrianglesDCEL};
 pub use geom::{Point, Triangle};
 
 const STACK_CAPACITY: usize = 512;
 
-/// Option<usize>, where None is represented by -1
+/// Option<usize>, where None is represented by usize::MAX.
 ///
 /// Takes 8 bytes instead of 16.
-#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct OptionIndex(usize);
+#[derive(Clone, Copy, Eq, Hash, Ord)]
+pub struct OptionIndex<T: Into<usize> + From<usize>>(usize, PhantomData<T>);
 
-impl OptionIndex {
+impl<T: Into<usize> + From<usize>> OptionIndex<T> {
     /// Returns `Some(idx)` value
     #[inline]
-    pub fn some(idx: usize) -> OptionIndex {
+    pub fn some(idx: T) -> OptionIndex<T> {
+        let idx = idx.into();
         debug_assert!(idx < std::usize::MAX);
-        OptionIndex(idx)
+        OptionIndex(idx, PhantomData)
     }
 
     /// Returns None value
     #[inline]
-    pub fn none() -> OptionIndex {
-        OptionIndex(std::usize::MAX)
+    pub fn none() -> OptionIndex<T> {
+        OptionIndex(std::usize::MAX, PhantomData)
     }
 
     /// Returns true if it is a `Some` value
     #[inline]
-    pub fn is_some(self) -> bool {
-        self != OptionIndex::none()
+    pub fn is_some(&self) -> bool {
+        self != &OptionIndex::none()
     }
 
     /// Returns true if it is a `None` value
     #[inline]
-    pub fn is_none(self) -> bool {
-        self == OptionIndex::none()
+    pub fn is_none(&self) -> bool {
+        self == &OptionIndex::none()
     }
 
     /// Returns the associated `Option` value
     #[inline]
-    pub fn get(self) -> Option<usize> {
+    pub fn get(&self) -> Option<T> {
         if self.is_some() {
-            Some(self.0)
+            Some(self.0.into())
         } else {
             None
         }
     }
 }
 
-impl std::fmt::Debug for OptionIndex {
+impl<T: Into<usize> + From<usize>> PartialEq for OptionIndex<T> {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.0 == rhs.0
+    }
+}
+
+impl<T: Into<usize> + From<usize>> PartialOrd for OptionIndex<T> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
+        self.0.partial_cmp(&rhs.0)
+    }
+}
+
+impl<T: Into<usize> + From<usize> + std::fmt::Debug> std::fmt::Debug for OptionIndex<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         self.get().fmt(f)
     }
@@ -67,51 +82,51 @@ fn angular_hash(point: Point, center: Point, size: usize) -> usize {
 /// Counter-clockwise convex hull
 struct Hull {
     /// Maps point index to next point index
-    next: Vec<usize>,
+    next: Vec<PointIndex>,
 
     /// Maps point index to previous point index
-    prev: Vec<usize>,
+    prev: Vec<PointIndex>,
 
     /// Radial hash table
-    hash_table: Vec<OptionIndex>,
+    hash_table: Vec<OptionIndex<PointIndex>>,
 
     /// Boundary triangles
-    triangles: Vec<OptionIndex>,
+    triangles: Vec<OptionIndex<EdgeIndex>>,
 
     /// Center point for calculating radial hash
     center: Point,
 
     /// Starting point index
-    start: usize,
+    start: PointIndex,
 }
 
 impl Hull {
-    fn new(seed: [usize; 3], points: &[Point]) -> Hull {
+    fn new(seed: [PointIndex; 3], points: &[Point]) -> Hull {
         let capacity = points.len();
         let table_size = (capacity as f32).sqrt().ceil() as usize;
 
         let center = Triangle(points[seed[0]], points[seed[1]], points[seed[2]]).circumcenter();
 
         let mut hull = Hull {
-            next: vec![0; capacity],
-            prev: vec![0; capacity],
+            next: vec![0.into(); capacity],
+            prev: vec![0.into(); capacity],
             hash_table: vec![OptionIndex::none(); table_size],
             triangles: vec![OptionIndex::none(); capacity],
             start: seed[0],
             center,
         };
 
-        hull.next[seed[0]] = seed[1];
-        hull.next[seed[1]] = seed[2];
-        hull.next[seed[2]] = seed[0];
+        hull.next[seed[0].as_usize()] = seed[1];
+        hull.next[seed[1].as_usize()] = seed[2];
+        hull.next[seed[2].as_usize()] = seed[0];
 
-        hull.prev[seed[0]] = seed[2];
-        hull.prev[seed[1]] = seed[0];
-        hull.prev[seed[2]] = seed[1];
+        hull.prev[seed[0].as_usize()] = seed[2];
+        hull.prev[seed[1].as_usize()] = seed[0];
+        hull.prev[seed[2].as_usize()] = seed[1];
 
-        hull.triangles[seed[0]] = OptionIndex::some(0);
-        hull.triangles[seed[1]] = OptionIndex::some(1);
-        hull.triangles[seed[2]] = OptionIndex::some(2);
+        hull.triangles[seed[0].as_usize()] = OptionIndex::some(0.into());
+        hull.triangles[seed[1].as_usize()] = OptionIndex::some(1.into());
+        hull.triangles[seed[2].as_usize()] = OptionIndex::some(2.into());
 
         hull.add_hash(seed[0], points[seed[0]]);
         hull.add_hash(seed[1], points[seed[1]]);
@@ -121,14 +136,15 @@ impl Hull {
     }
 
     /// Adds a new point in the hash table
-    fn add_hash(&mut self, index: usize, point: Point) {
+    fn add_hash(&mut self, index: PointIndex, point: Point) {
         let table_size = self.hash_table.len();
         self.hash_table[angular_hash(point, self.center, table_size)] = OptionIndex::some(index);
     }
 
-    /// Returns the first convex hull edge visible from the point and a boolean
-    /// indicating whether the previous edge may be visible too
-    fn find_visible_edge(&self, point: Point, points: &[Point]) -> Option<(usize, bool)> {
+    /// Returns the index of the ending point of first convex hull edge visible
+    /// from the point and a boolean indicating whether the previous edge may be
+    /// visible too
+    fn find_visible_edge(&self, point: Point, points: &[Point]) -> Option<(PointIndex, bool)> {
         let table_size = self.hash_table.len();
         let hash = angular_hash(point, self.center, table_size);
 
@@ -139,7 +155,7 @@ impl Hull {
             start = self.hash_table[(hash + i) % table_size];
 
             // if e == self.next[e] then it is an empty hash table entry; skip it
-            if start.get().filter(|&e| e != self.next[e]).is_some() {
+            if start.get().filter(|&e| e != self.next[e.as_usize()]).is_some() {
                 break;
             }
         }
@@ -147,11 +163,11 @@ impl Hull {
         // now `start` is a point near enough to the target
         // let's go forward to find a visible edge
 
-        let start = self.prev[start.get()?];
+        let start = self.prev[start.get()?.as_usize()];
         let mut edge = start;
 
         loop {
-            let next = self.next[edge];
+            let next = self.next[edge.as_usize()];
             let tri = Triangle(point, points[edge], points[next]);
 
             if tri.is_left_handed() {
@@ -182,7 +198,7 @@ fn find_center(points: &[Point]) -> Point {
     Point::new(x_sum / points.len() as f32, y_sum / points.len() as f32)
 }
 
-fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
+fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [PointIndex; 3])> {
     let center = find_center(&points);
 
     #[cfg(feature = "rayon")]
@@ -222,10 +238,10 @@ fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
     let tri = Triangle(seed, nearest, third);
 
     if tri.is_right_handed() {
-        Some((tri, [seed_idx, nearest_idx, third_idx]))
+        Some((tri, [seed_idx.into(), nearest_idx.into(), third_idx.into()]))
     } else {
         let tri = Triangle(seed, third, nearest);
-        Some((tri, [seed_idx, third_idx, nearest_idx]))
+        Some((tri, [seed_idx.into(), third_idx.into(), nearest_idx.into()]))
     }
 }
 
@@ -233,7 +249,7 @@ fn find_seed_triangle(points: &[Point]) -> Option<(Triangle, [usize; 3])> {
 pub struct Delaunay {
     pub dcel: TrianglesDCEL,
     hull: Hull,
-    stack: Vec<usize>,
+    stack: Vec<EdgeIndex>,
 }
 
 impl Delaunay {
@@ -243,10 +259,11 @@ impl Delaunay {
         let seed_circumcenter = seed.circumcenter();
 
         let mut indices = (0..points.len())
+            .map(|i| PointIndex::from(i))
             .filter(|&i| i != seed_indices[0] && i != seed_indices[1] && i != seed_indices[2])
             .collect::<Vec<_>>();
 
-        let cmp = |&a: &usize, &b: &usize| {
+        let cmp = |&a: &PointIndex, &b: &PointIndex| {
             points[a]
                 .distance_sq(seed_circumcenter)
                 .partial_cmp(&points[b].distance_sq(seed_circumcenter))
@@ -287,7 +304,7 @@ impl Delaunay {
         Some(delaunay)
     }
 
-    fn add_point(&mut self, index: usize, points: &[Point]) {
+    fn add_point(&mut self, index: PointIndex, points: &[Point]) {
         let point = points[index];
 
         let (mut start, should_walk_back) = match self.hull.find_visible_edge(point, points) {
@@ -295,22 +312,22 @@ impl Delaunay {
             None => return,
         };
 
-        let mut end = self.hull.next[start];
+        let mut end = self.hull.next[start.as_usize()];
 
         let t = self.add_triangle(
             [start, index, end],
             [
                 OptionIndex::none(),
                 OptionIndex::none(),
-                self.hull.triangles[start],
+                self.hull.triangles[start.as_usize()],
             ],
         );
 
-        self.hull.triangles[index] = OptionIndex::some(self.legalize(t + 2, points));
-        self.hull.triangles[start] = OptionIndex::some(t);
+        self.hull.triangles[index.as_usize()] = OptionIndex::some(self.legalize(t + 2, points));
+        self.hull.triangles[start.as_usize()] = OptionIndex::some(t);
 
         loop {
-            let next = self.hull.next[end];
+            let next = self.hull.next[end.as_usize()];
             let tri = Triangle(point, points[next], points[end]);
             if !tri.is_right_handed() {
                 break;
@@ -319,20 +336,20 @@ impl Delaunay {
             let t = self.add_triangle(
                 [end, index, next],
                 [
-                    self.hull.triangles[index],
+                    self.hull.triangles[index.as_usize()],
                     OptionIndex::none(),
-                    self.hull.triangles[end],
+                    self.hull.triangles[end.as_usize()],
                 ],
             );
 
-            self.hull.triangles[index] = OptionIndex::some(self.legalize(t + 2, points));
-            self.hull.next[end] = end;
+            self.hull.triangles[index.as_usize()] = OptionIndex::some(self.legalize(t + 2, points));
+            self.hull.next[end.as_usize()] = end;
             end = next;
         }
 
         if should_walk_back {
             loop {
-                let prev = self.hull.prev[start];
+                let prev = self.hull.prev[start.as_usize()];
                 let tri = Triangle(point, points[start], points[prev]);
                 if !tri.is_right_handed() {
                     break;
@@ -342,31 +359,31 @@ impl Delaunay {
                     [prev, index, start],
                     [
                         OptionIndex::none(),
-                        self.hull.triangles[start],
-                        self.hull.triangles[prev],
+                        self.hull.triangles[start.as_usize()],
+                        self.hull.triangles[prev.as_usize()],
                     ],
                 );
 
                 self.legalize(t + 2, points);
 
-                self.hull.triangles[prev] = OptionIndex::some(t);
-                self.hull.next[start] = start;
+                self.hull.triangles[prev.as_usize()] = OptionIndex::some(t);
+                self.hull.next[start.as_usize()] = start;
                 start = prev;
             }
         }
 
         self.hull.start = start;
-        self.hull.next[start] = index;
-        self.hull.next[index] = end;
+        self.hull.next[start.as_usize()] = index;
+        self.hull.next[index.as_usize()] = end;
 
-        self.hull.prev[end] = index;
-        self.hull.prev[index] = start;
+        self.hull.prev[end.as_usize()] = index;
+        self.hull.prev[index.as_usize()] = start;
 
         self.hull.add_hash(index, point);
         self.hull.add_hash(start, points[start]);
     }
 
-    fn add_triangle(&mut self, vertices: [usize; 3], halfedges: [OptionIndex; 3]) -> usize {
+    fn add_triangle(&mut self, vertices: [PointIndex; 3], halfedges: [OptionIndex<EdgeIndex>; 3]) -> EdgeIndex {
         let t = self.dcel.add_triangle(vertices);
 
         for (i, &halfedge) in halfedges.iter().enumerate() {
@@ -378,10 +395,10 @@ impl Delaunay {
         t
     }
 
-    fn legalize(&mut self, index: usize, points: &[Point]) -> usize {
+    fn legalize(&mut self, index: EdgeIndex, points: &[Point]) -> EdgeIndex {
         self.stack.push(index);
 
-        let mut output = 0;
+        let mut output = 0.into();
 
         while let Some(a) = self.stack.pop() {
             let ar = self.dcel.prev_edge(a);
@@ -430,7 +447,7 @@ impl Delaunay {
             self.dcel.link(ar, bl);
 
             if hbl.is_none() {
-                let mut edge = self.hull.start;
+                let mut edge: EdgeIndex = self.hull.start.as_usize().into();
 
                 loop {
                     if self.hull.triangles[edge] == OptionIndex::some(bl) {
@@ -438,9 +455,9 @@ impl Delaunay {
                         break;
                     }
 
-                    edge = self.hull.next[edge];
+                    edge = self.hull.next[edge].as_usize().into();
 
-                    if edge == self.hull.start || edge == self.hull.next[edge] {
+                    if edge.as_usize() == self.hull.start.as_usize() || edge.as_usize() == self.hull.next[edge].as_usize() {
                         break;
                     }
                 }
