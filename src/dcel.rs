@@ -158,6 +158,11 @@ impl TrianglesDCEL {
         self.halfedges[edge].get()
     }
 
+    #[inline]
+    pub fn edge_endpoint(&self, edge: EdgeIndex) -> PointIndex {
+        self.vertices[self.next_edge(edge)]
+    }
+
     /// Mark two given edges as twins.
     ///
     /// # Examples
