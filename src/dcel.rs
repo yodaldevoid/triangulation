@@ -54,6 +54,14 @@ impl TrianglesDCEL {
         t.into()
     }
 
+    #[inline]
+    pub fn triangle_edges(&self, t: EdgeIndex) -> [EdgeIndex; 3] {
+        let a = t;
+        let b = self.next_edge(a);
+        let c = self.next_edge(b);
+        [a, b, c]
+    }
+
     /// Returns point ids of the given triangle.
     ///
     /// # Examples
@@ -67,9 +75,7 @@ impl TrianglesDCEL {
     /// ```
     #[inline]
     pub fn triangle_points(&self, t: EdgeIndex) -> [PointIndex; 3] {
-        let a = t;
-        let b = self.next_edge(a);
-        let c = self.next_edge(b);
+        let [a, b, c] = self.triangle_edges(t);
 
         [self.vertices[a], self.vertices[b], self.vertices[c]]
     }
