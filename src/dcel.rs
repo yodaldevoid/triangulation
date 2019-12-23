@@ -198,17 +198,17 @@ impl TrianglesDCEL {
         }
     }
 
-    /// Returns the iterator of triangles around the given point.
+    /// Returns an iterator of outgoing edges from the given point.
     ///
     /// [`init_revmap`](TrianglesDCEL::init_revmap) must be called beforehand
     /// to initialize the point-to-triangle map.
-    pub fn triangles_around_point<'a>(&'a self, p: PointIndex) -> TrianglesAroundPoint<'a> {
+    pub fn outgoing_edges<'a>(&'a self, p: PointIndex) -> EdgesAroundPoint<'a> {
         let start = self
             .points_to_triangles
             .as_ref()
             .expect("initialize point-to-triangle map calling init_revmap")[p.0];
 
-        TrianglesAroundPoint {
+        EdgesAroundPoint {
             dcel: self,
             start,
             current: Some(start),
@@ -232,16 +232,16 @@ impl TrianglesDCEL {
     }
 }
 
-/// Iterator of triangles around a certain point in DCEL
+/// Iterator of edges around a certain point in DCEL
 #[derive(Debug, Clone)]
-pub struct TrianglesAroundPoint<'a> {
+pub struct EdgesAroundPoint<'a> {
     dcel: &'a TrianglesDCEL,
     start: EdgeIndex,
     current: Option<EdgeIndex>,
     backward: bool,
 }
 
-impl<'a> Iterator for TrianglesAroundPoint<'a> {
+impl<'a> Iterator for EdgesAroundPoint<'a> {
     type Item = EdgeIndex;
 
     fn next(&mut self) -> Option<EdgeIndex> {
@@ -270,7 +270,7 @@ impl<'a> Iterator for TrianglesAroundPoint<'a> {
     }
 }
 
-impl<'a> std::iter::FusedIterator for TrianglesAroundPoint<'a> {}
+impl<'a> std::iter::FusedIterator for EdgesAroundPoint<'a> {}
 
 #[cfg(test)]
 mod tests {
@@ -302,7 +302,7 @@ mod tests {
 
         dcel.init_revmap();
 
-        let around = dcel.triangles_around_point(0.into()).collect::<Vec<_>>();
+        let around = dcel.outgoing_edges(0.into()).collect::<Vec<_>>();
 
         assert_eq!(around.len(), count);
         assert_eq!(around.iter().collect::<HashSet<_>>().len(), count); // no duplicates
@@ -320,7 +320,7 @@ mod tests {
 
         dcel.init_revmap();
 
-        let around = dcel.triangles_around_point(PointIndex(1)).collect::<Vec<_>>();
+        let around = dcel.outgoing_edges(1.into()).collect::<Vec<_>>();
 
         assert_eq!(around.len(), 2);
         assert_eq!(around.iter().collect::<HashSet<_>>().len(), 2); // no duplicates
